@@ -1,5 +1,11 @@
 // src/screens/JoinCall.jsx
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, {
+  useState,
+  useCallback,
+  useEffect,
+  useRef,
+  useMemo,
+} from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { toast } from 'react-toastify';
@@ -62,6 +68,8 @@ const API_BASE = (() => {
 })();
 
 const BRAND = '#0d9488';
+const MIN_SIDEBAR_WIDTH = 300;
+const MAX_SIDEBAR_WIDTH = 720;
 
 const ROOM_OPTIONS = {
   audioCaptureDefaults: {
@@ -73,7 +81,6 @@ const ROOM_OPTIONS = {
 
 const GUEST_STATE_POLL_MS = 15_000;
 
-// Phones / WebViews don't expose getDisplayMedia, so the share button is hidden there.
 const SCREEN_SHARE_SUPPORTED =
   typeof navigator !== 'undefined' &&
   !!navigator.mediaDevices &&
@@ -150,6 +157,28 @@ const useWakeLock = (active) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
+// useIsDesktop hook
+// ─────────────────────────────────────────────────────────────────────
+const useIsDesktop = () => {
+  const [isDesktop, setIsDesktop] = useState(
+    () => typeof window !== 'undefined' && window.innerWidth >= 768
+  );
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const mq = window.matchMedia('(min-width: 768px)');
+    const handler = (e) => setIsDesktop(e.matches);
+    if (mq.addEventListener) mq.addEventListener('change', handler);
+    else mq.addListener?.(handler);
+    setIsDesktop(mq.matches);
+    return () => {
+      if (mq.removeEventListener) mq.removeEventListener('change', handler);
+      else mq.removeListener?.(handler);
+    };
+  }, []);
+  return isDesktop;
+};
+
+// ─────────────────────────────────────────────────────────────────────
 // Global styles
 // ─────────────────────────────────────────────────────────────────────
 const GlobalStyles = () => (
@@ -167,38 +196,44 @@ const GlobalStyles = () => (
 );
 
 // ═════════════════════════════════════════════════════════════════════
-// Participant tile (shared for main + thumb)
+// Avatar
 // ═════════════════════════════════════════════════════════════════════
-const ParticipantTile = ({
-  participant,
-  cameraRef,
-  variant = 'thumb',
-  active = false,
-  onClick,
-}) => {
+const Avatar = ({ info, size }) => {
+  const style = { width: size, height: size, fontSize: size * 0.4 };
+  if (info.profile) {
+    return (
+      <img
+        src={info.profile}
+        alt={info.name}
+        style={style}
+        className="rounded-full object-cover flex-shrink-0"
+      />
+    );
+  }
+  return (
+    <div
+      style={{ ...style, backgroundColor: BRAND }}
+      className="rounded-full flex items-center justify-center font-bold text-white flex-shrink-0"
+    >
+      {info.name.charAt(0).toUpperCase()}
+    </div>
+  );
+};
+
+// ═════════════════════════════════════════════════════════════════════
+// Grid tile
+// ═════════════════════════════════════════════════════════════════════
+const GridTile = ({ participant, cameraRef, onClick }) => {
   const isSpeaking = useIsSpeaking(participant);
   const micMuted = useIsMuted(Track.Source.Microphone, { participant });
   const info = getInfo(participant);
-  const isMain = variant === 'main';
   const camOn = !!cameraRef && !cameraRef.publication?.isMuted;
-
-  const ringStyle = isSpeaking
-    ? { boxShadow: `0 0 0 3px ${BRAND}` }
-    : active
-    ? { boxShadow: '0 0 0 2px rgba(255,255,255,0.35)' }
-    : {};
-
-  const avatarSize = isMain ? 112 : 36;
 
   return (
     <div
       onClick={onClick}
-      style={ringStyle}
-      className={`relative overflow-hidden bg-[#1a1a24] transition-shadow ${
-        isMain
-          ? 'w-full h-full rounded-3xl'
-          : 'w-28 h-20 sm:w-36 sm:h-24 rounded-xl flex-shrink-0 cursor-pointer'
-      }`}
+      className="relative w-full h-full overflow-hidden rounded-xl bg-[#1a1a24] cursor-pointer transition-shadow"
+      style={isSpeaking ? { boxShadow: `0 0 0 3px ${BRAND}` } : undefined}
     >
       {camOn ? (
         <VideoTrack
@@ -207,79 +242,211 @@ const ParticipantTile = ({
           style={participant.isLocal ? { transform: 'scaleX(-1)' } : undefined}
         />
       ) : (
-        <div className="w-full h-full flex flex-col items-center justify-center gap-2 px-2">
-          {info.profile ? (
-            <img
-              src={info.profile}
-              alt={info.name}
-              className="rounded-full object-cover flex-shrink-0"
-              style={{ width: avatarSize, height: avatarSize }}
-            />
-          ) : (
-            <div
-              className="rounded-full flex items-center justify-center font-bold text-white flex-shrink-0"
+        <div className="w-full h-full flex items-center justify-center px-2">
+          <Avatar info={info} size={56} />
+        </div>
+      )}
+
+      <div className="absolute bottom-1 left-1 right-1 flex items-center gap-1 bg-black/55 rounded-md px-1.5 py-0.5 text-[10px] sm:text-xs pointer-events-none">
+        {micMuted && (
+          <FaMicrophoneSlash className="text-red-400 flex-shrink-0" />
+        )}
+        <span className="truncate">
+          {participant.isLocal ? 'You' : info.name}
+        </span>
+      </div>
+
+      {isSpeaking && (
+        <div className="absolute top-1 right-1 flex items-end gap-[2px] h-4 bg-black/55 rounded-md px-1.5 py-1 pointer-events-none">
+          {[0, 1, 2].map((i) => (
+            <span
+              key={i}
+              className="w-[2px] rounded-full call-bar"
               style={{
-                width: avatarSize,
-                height: avatarSize,
                 backgroundColor: BRAND,
-                fontSize: Math.max(10, avatarSize * 0.4),
+                animationDelay: `${i * 0.15}s`,
               }}
-            >
-              {info.name.charAt(0).toUpperCase()}
-            </div>
-          )}
-          {isMain && (
-            <div className="text-center">
-              <p className="text-xl font-semibold">
-                {info.name}
-                {participant.isLocal ? ' (You)' : ''}
-              </p>
-              {info.username && (
-                <p className="text-sm text-gray-400">@{info.username}</p>
-              )}
-            </div>
-          )}
+            />
+          ))}
         </div>
-      )}
-
-      {(!isMain || camOn) && (
-        <div className="absolute bottom-1.5 left-1.5 right-1.5 flex items-center gap-1 bg-black/55 rounded-full px-2 py-0.5 text-[11px] sm:text-xs">
-          {micMuted && <FaMicrophoneSlash className="text-red-400 flex-shrink-0" />}
-          <span className="truncate">{participant.isLocal ? 'You' : info.name}</span>
-        </div>
-      )}
-
-      {isMain && (
-        <>
-          {micMuted && (
-            <div className="absolute top-3 right-3 bg-black/55 rounded-full p-2">
-              <FaMicrophoneSlash className="text-red-400" />
-            </div>
-          )}
-          {isSpeaking && (
-            <div className="absolute top-3 left-3 flex items-end gap-[3px] h-5 bg-black/55 rounded-full px-3 py-1.5">
-              {[0, 1, 2].map((i) => (
-                <span
-                  key={i}
-                  className="w-[3px] rounded-full call-bar"
-                  style={{
-                    backgroundColor: BRAND,
-                    animationDelay: `${i * 0.15}s`,
-                  }}
-                />
-              ))}
-            </div>
-          )}
-        </>
       )}
     </div>
   );
 };
 
-/**
- * Round camera bubble pinned top-right over a shared screen.
- * Shows the presenter's face (or initial if their camera is off).
- */
+// ═════════════════════════════════════════════════════════════════════
+// VideoGrid — responsive grid layout
+// ═════════════════════════════════════════════════════════════════════
+const VideoGrid = ({ participants, camRefFor, onSelect, isDesktop }) => {
+  const count = participants.length;
+  const wrapRef = useRef(null);
+  const [wrapH, setWrapH] = useState(0);
+
+  let cols = 1;
+  let rows = 1;
+  let special3 = false;
+  let scrollable = false;
+
+  if (isDesktop) {
+    if (count === 1) {
+      cols = 1;
+      rows = 1;
+    } else if (count === 2) {
+      cols = 2;
+      rows = 1;
+    } else if (count <= 4) {
+      cols = 2;
+      rows = 2;
+    } else if (count <= 6) {
+      cols = 3;
+      rows = 2;
+    } else if (count <= 9) {
+      cols = 3;
+      rows = 3;
+    } else {
+      cols = 4;
+      scrollable = true;
+    }
+  } else {
+    if (count === 1) {
+      cols = 1;
+      rows = 1;
+    } else if (count === 2) {
+      cols = 1;
+      rows = 2;
+    } else if (count === 3) {
+      cols = 2;
+      rows = 2;
+      special3 = true;
+    } else if (count === 4) {
+      cols = 2;
+      rows = 2;
+    } else if (count <= 6) {
+      cols = 3;
+      rows = 2;
+    } else if (count <= 9) {
+      cols = 3;
+      rows = 3;
+    } else {
+      cols = 3;
+      scrollable = true;
+    }
+  }
+
+  useEffect(() => {
+    if (!scrollable || !wrapRef.current) return undefined;
+    const el = wrapRef.current;
+    const update = () => setWrapH(el.clientHeight);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [scrollable]);
+
+  if (count === 0) return null;
+
+  const items = participants.map((p, i) => (
+    <div
+      key={p.identity}
+      className="min-h-0 min-w-0"
+      style={special3 && i === 0 ? { gridColumn: 'span 2' } : undefined}
+    >
+      <GridTile
+        participant={p}
+        cameraRef={camRefFor(p)}
+        onClick={() => onSelect?.(p)}
+      />
+    </div>
+  ));
+
+  if (scrollable) {
+    const rowH = wrapH > 0 ? Math.max(120, (wrapH - 16) / 3) : undefined;
+    return (
+      <div ref={wrapRef} className="h-full overflow-y-auto join-scroll">
+        <div
+          className="grid gap-2 pb-2"
+          style={{
+            gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
+            ...(rowH ? { gridAutoRows: `${rowH}px` } : {}),
+          }}
+        >
+          {items}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="grid h-full gap-2"
+      style={{
+        gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
+        gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))`,
+      }}
+    >
+      {items}
+    </div>
+  );
+};
+
+// ═════════════════════════════════════════════════════════════════════
+// Participant popup
+// ═════════════════════════════════════════════════════════════════════
+const ParticipantPopup = ({ participant, cameraRef, onClose }) => {
+  if (!participant) return null;
+  const isSpeaking = useIsSpeaking(participant);
+  const micMuted = useIsMuted(Track.Source.Microphone, { participant });
+  const info = getInfo(participant);
+  const camOn = !!cameraRef && !cameraRef.publication?.isMuted;
+
+  return (
+    <div
+      className="fixed inset-0 z-[95] flex items-center justify-center bg-black/75 backdrop-blur-md p-4 sm:p-10"
+      onClick={onClose}
+    >
+      <div
+        className="relative max-w-5xl w-full aspect-video rounded-2xl overflow-hidden bg-[#1a1a24] shadow-2xl"
+        style={isSpeaking ? { boxShadow: `0 0 0 3px ${BRAND}` } : undefined}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          onClick={onClose}
+          className="absolute top-2 right-2 z-10 w-9 h-9 rounded-full bg-black/60 hover:bg-black/80 flex items-center justify-center text-white transition"
+          aria-label="Close"
+        >
+          <FaTimes />
+        </button>
+
+        {camOn ? (
+          <VideoTrack
+            trackRef={cameraRef}
+            className="w-full h-full object-contain"
+            style={
+              participant.isLocal ? { transform: 'scaleX(-1)' } : undefined
+            }
+          />
+        ) : (
+          <div className="w-full h-full flex flex-col items-center justify-center gap-3">
+            <Avatar info={info} size={140} />
+            <p className="text-xl font-semibold">
+              {info.name}
+              {participant.isLocal ? ' (You)' : ''}
+            </p>
+          </div>
+        )}
+
+        <div className="absolute bottom-3 left-3 flex items-center gap-2 bg-black/60 backdrop-blur-sm rounded-lg px-3 py-1.5 text-sm">
+          {micMuted && <FaMicrophoneSlash className="text-red-400" />}
+          <span>{participant.isLocal ? 'You' : info.name}</span>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ═════════════════════════════════════════════════════════════════════
+// Pip bubble (for screen share)
+// ═════════════════════════════════════════════════════════════════════
 const PipBubble = ({ participant, cameraRef }) => {
   const isSpeaking = useIsSpeaking(participant);
   const micMuted = useIsMuted(Track.Source.Microphone, { participant });
@@ -290,7 +457,9 @@ const PipBubble = ({ participant, cameraRef }) => {
     <div
       className="absolute top-3 right-3 z-10 w-24 h-24 sm:w-32 sm:h-32 rounded-full overflow-hidden bg-[#1a1a24] shadow-2xl"
       style={{
-        border: `3px solid ${isSpeaking ? BRAND : 'rgba(255,255,255,0.25)'}`,
+        border: `3px solid ${
+          isSpeaking ? BRAND : 'rgba(255,255,255,0.25)'
+        }`,
       }}
     >
       {camOn ? (
@@ -299,18 +468,9 @@ const PipBubble = ({ participant, cameraRef }) => {
           className="w-full h-full object-cover"
           style={participant.isLocal ? { transform: 'scaleX(-1)' } : undefined}
         />
-      ) : info.profile ? (
-        <img
-          src={info.profile}
-          alt={info.name}
-          className="w-full h-full object-cover"
-        />
       ) : (
-        <div
-          className="w-full h-full flex items-center justify-center font-bold text-white text-3xl"
-          style={{ backgroundColor: BRAND }}
-        >
-          {info.name.charAt(0).toUpperCase()}
+        <div className="w-full h-full flex items-center justify-center">
+          <Avatar info={info} size={56} />
         </div>
       )}
       {micMuted && (
@@ -323,9 +483,207 @@ const PipBubble = ({ participant, cameraRef }) => {
 };
 
 // ═════════════════════════════════════════════════════════════════════
-// Guest AI panel (read-only)
+// Guest AI panel content — shared between overlay + sidebar
 // ═════════════════════════════════════════════════════════════════════
-const GuestAIPanel = ({
+const GuestAIPanelContent = ({
+  tab,
+  setTab,
+  aiEnabled,
+  transcript,
+  liveSummary,
+  chatMessages,
+  noteReady,
+  onClose,
+}) => {
+  const tabs = [
+    { id: 'summary', label: 'Summary', icon: <FaBrain /> },
+    { id: 'transcript', label: 'Transcript', icon: <FaCommentDots /> },
+    { id: 'chat', label: 'Chat', icon: <FaLightbulb /> },
+  ];
+
+  return (
+    <>
+      <div
+        className="flex items-center justify-between px-4 py-3 border-b border-white/10 flex-shrink-0"
+        style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top, 0px))' }}
+      >
+        <div className="flex items-center gap-2">
+          <FaRobot style={{ color: BRAND }} />
+          <h3 className="text-base font-semibold">Xircle AI</h3>
+          <span
+            className={`text-[10px] px-2 py-0.5 rounded-full ${
+              aiEnabled
+                ? 'bg-green-500/20 text-green-400'
+                : 'bg-gray-500/20 text-gray-400'
+            }`}
+          >
+            {aiEnabled ? 'LIVE' : 'OFF'}
+          </span>
+        </div>
+        <button
+          onClick={onClose}
+          className="p-1.5 text-gray-400 hover:text-white rounded-lg"
+          aria-label="Close panel"
+        >
+          <FaTimes />
+        </button>
+      </div>
+
+      <div className="flex border-b border-white/10 flex-shrink-0">
+        {tabs.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={`flex-1 py-2.5 text-xs font-medium flex flex-col items-center gap-1 transition ${
+              tab === t.id
+                ? 'text-white border-b-2'
+                : 'text-gray-400 hover:text-gray-200'
+            }`}
+            style={tab === t.id ? { borderBottomColor: BRAND } : undefined}
+          >
+            {t.icon}
+            <span>{t.label}</span>
+          </button>
+        ))}
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-4 py-3 join-scroll">
+        {tab === 'summary' && (
+          <div className="space-y-4">
+            {!aiEnabled && (
+              <div className="text-sm text-gray-400">
+                The host hasn't turned on AI notes for this meeting.
+              </div>
+            )}
+            {aiEnabled && !liveSummary && (
+              <div className="text-sm text-gray-400 flex items-center gap-2">
+                <FaSpinner className="animate-spin" />
+                Listening for context…
+              </div>
+            )}
+            {liveSummary && (
+              <>
+                {liveSummary.text && (
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-gray-400 mb-1">
+                      Live summary
+                    </p>
+                    <p className="text-sm text-gray-200 whitespace-pre-wrap">
+                      {liveSummary.text}
+                    </p>
+                  </div>
+                )}
+                {liveSummary.keyPoints?.length > 0 && (
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-gray-400 mb-1">
+                      Key points
+                    </p>
+                    <ul className="text-sm text-gray-200 list-disc pl-5 space-y-1">
+                      {liveSummary.keyPoints.map((k, i) => (
+                        <li key={i}>{k}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {liveSummary.actionItems?.length > 0 && (
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-gray-400 mb-1">
+                      Action items
+                    </p>
+                    <ul className="text-sm text-gray-200 space-y-1">
+                      {liveSummary.actionItems.map((a, i) => (
+                        <li key={i} className="flex gap-2">
+                          <span style={{ color: BRAND }}>•</span>
+                          <span>
+                            {a.text}
+                            {a.assignee && (
+                              <span className="text-gray-400">
+                                {' '}
+                                — {a.assignee}
+                              </span>
+                            )}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </>
+            )}
+            {noteReady?.noteId && (
+              <div className="rounded-xl bg-teal-500/10 border border-teal-500/30 px-3 py-2 text-xs text-teal-200">
+                <FaBookOpen className="inline mr-1" />
+                Notes were saved. Sign in to view them in your workspace.
+              </div>
+            )}
+          </div>
+        )}
+
+        {tab === 'transcript' && (
+          <div className="space-y-2">
+            {!aiEnabled && (
+              <div className="text-sm text-gray-400">
+                AI notes are off for this meeting.
+              </div>
+            )}
+            {aiEnabled && transcript.length === 0 && (
+              <div className="text-sm text-gray-400">
+                Waiting for the first words…
+              </div>
+            )}
+            {transcript.map((s, i) => (
+              <div key={i} className="text-sm">
+                <span className="font-medium" style={{ color: BRAND }}>
+                  {s.speakerName || 'Someone'}:
+                </span>{' '}
+                <span className="text-gray-200">{s.text}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {tab === 'chat' && (
+          <div className="space-y-2">
+            {chatMessages.length === 0 && (
+              <p className="text-sm text-gray-500">No messages yet.</p>
+            )}
+            {chatMessages.map((m, i) => (
+              <div key={i} className="text-sm flex justify-start">
+                <div className="max-w-[85%] px-3 py-1.5 rounded-2xl rounded-bl-sm bg-white/10 text-gray-100">
+                  {m.senderName && (
+                    <p className="text-[10px] text-gray-400 mb-0.5">
+                      {m.senderName}
+                    </p>
+                  )}
+                  {m.content}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="border-t border-white/10 p-3 flex-shrink-0">
+        <Link
+          to="/signup"
+          className="w-full py-2.5 rounded-xl text-white text-sm font-medium flex items-center justify-center gap-2 transition hover:opacity-90"
+          style={{ backgroundColor: BRAND }}
+        >
+          <FaRobot className="text-sm" />
+          Sign up to ask AI & chat
+        </Link>
+        <p className="text-[10px] text-gray-500 text-center mt-2">
+          Guests can view AI notes but need an account to interact.
+        </p>
+      </div>
+    </>
+  );
+};
+
+// ═════════════════════════════════════════════════════════════════════
+// Guest AI panel — mobile overlay
+// ═════════════════════════════════════════════════════════════════════
+const GuestAIPanelOverlay = ({
   open,
   onClose,
   tab,
@@ -337,197 +695,55 @@ const GuestAIPanel = ({
   noteReady,
 }) => {
   if (!open) return null;
-
-  const tabs = [
-    { id: 'summary', label: 'Summary', icon: <FaBrain /> },
-    { id: 'transcript', label: 'Transcript', icon: <FaCommentDots /> },
-    { id: 'chat', label: 'Chat', icon: <FaLightbulb /> },
-  ];
-
   return (
     <div className="fixed inset-0 z-[70] flex sm:items-stretch sm:justify-end">
       <div className="flex-1 bg-black/40" onClick={onClose} />
-
       <div className="w-full sm:w-[420px] h-[85dvh] sm:h-full bg-[#0f0f15] border-l border-white/10 flex flex-col sm:rounded-none rounded-t-2xl shadow-2xl overflow-hidden">
-        {/* Header */}
-        <div
-          className="flex items-center justify-between px-4 py-3 border-b border-white/10 flex-shrink-0"
-          style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top, 0px))' }}
-        >
-          <div className="flex items-center gap-2">
-            <FaRobot style={{ color: BRAND }} />
-            <h3 className="text-base font-semibold">Xircle AI</h3>
-            <span
-              className={`text-[10px] px-2 py-0.5 rounded-full ${
-                aiEnabled
-                  ? 'bg-green-500/20 text-green-400'
-                  : 'bg-gray-500/20 text-gray-400'
-              }`}
-            >
-              {aiEnabled ? 'LIVE' : 'OFF'}
-            </span>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 text-gray-400 hover:text-white rounded-lg"
-          >
-            <FaTimes />
-          </button>
-        </div>
-
-        {/* Tabs */}
-        <div className="flex border-b border-white/10 flex-shrink-0">
-          {tabs.map((t) => (
-            <button
-              key={t.id}
-              onClick={() => setTab(t.id)}
-              className={`flex-1 py-2.5 text-xs font-medium flex flex-col items-center gap-1 transition ${
-                tab === t.id
-                  ? 'text-white border-b-2'
-                  : 'text-gray-400 hover:text-gray-200'
-              }`}
-              style={tab === t.id ? { borderBottomColor: BRAND } : undefined}
-            >
-              {t.icon}
-              <span>{t.label}</span>
-            </button>
-          ))}
-        </div>
-
-        {/* Body */}
-        <div className="flex-1 overflow-y-auto px-4 py-3 join-scroll">
-          {tab === 'summary' && (
-            <div className="space-y-4">
-              {!aiEnabled && (
-                <div className="text-sm text-gray-400">
-                  The host hasn't turned on AI notes for this meeting.
-                </div>
-              )}
-              {aiEnabled && !liveSummary && (
-                <div className="text-sm text-gray-400 flex items-center gap-2">
-                  <FaSpinner className="animate-spin" />
-                  Listening for context…
-                </div>
-              )}
-              {liveSummary && (
-                <>
-                  {liveSummary.text && (
-                    <div>
-                      <p className="text-xs uppercase tracking-wide text-gray-400 mb-1">
-                        Live summary
-                      </p>
-                      <p className="text-sm text-gray-200 whitespace-pre-wrap">
-                        {liveSummary.text}
-                      </p>
-                    </div>
-                  )}
-                  {liveSummary.keyPoints?.length > 0 && (
-                    <div>
-                      <p className="text-xs uppercase tracking-wide text-gray-400 mb-1">
-                        Key points
-                      </p>
-                      <ul className="text-sm text-gray-200 list-disc pl-5 space-y-1">
-                        {liveSummary.keyPoints.map((k, i) => (
-                          <li key={i}>{k}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  {liveSummary.actionItems?.length > 0 && (
-                    <div>
-                      <p className="text-xs uppercase tracking-wide text-gray-400 mb-1">
-                        Action items
-                      </p>
-                      <ul className="text-sm text-gray-200 space-y-1">
-                        {liveSummary.actionItems.map((a, i) => (
-                          <li key={i} className="flex gap-2">
-                            <span style={{ color: BRAND }}>•</span>
-                            <span>
-                              {a.text}
-                              {a.assignee && (
-                                <span className="text-gray-400">
-                                  {' '}— {a.assignee}
-                                </span>
-                              )}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </>
-              )}
-              {noteReady?.noteId && (
-                <div className="rounded-xl bg-teal-500/10 border border-teal-500/30 px-3 py-2 text-xs text-teal-200">
-                  <FaBookOpen className="inline mr-1" />
-                  Notes were saved. Sign in to view them in your workspace.
-                </div>
-              )}
-            </div>
-          )}
-
-          {tab === 'transcript' && (
-            <div className="space-y-2">
-              {!aiEnabled && (
-                <div className="text-sm text-gray-400">
-                  AI notes are off for this meeting.
-                </div>
-              )}
-              {aiEnabled && transcript.length === 0 && (
-                <div className="text-sm text-gray-400">
-                  Waiting for the first words…
-                </div>
-              )}
-              {transcript.map((s, i) => (
-                <div key={i} className="text-sm">
-                  <span className="font-medium" style={{ color: BRAND }}>
-                    {s.speakerName || 'Someone'}:
-                  </span>{' '}
-                  <span className="text-gray-200">{s.text}</span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {tab === 'chat' && (
-            <div className="space-y-2">
-              {chatMessages.length === 0 && (
-                <p className="text-sm text-gray-500">No messages yet.</p>
-              )}
-              {chatMessages.map((m, i) => (
-                <div key={i} className="text-sm flex justify-start">
-                  <div className="max-w-[85%] px-3 py-1.5 rounded-2xl rounded-bl-sm bg-white/10 text-gray-100">
-                    {m.senderName && (
-                      <p className="text-[10px] text-gray-400 mb-0.5">
-                        {m.senderName}
-                      </p>
-                    )}
-                    {m.content}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Footer CTA — guests can't ask AI or chat */}
-        <div className="border-t border-white/10 p-3 flex-shrink-0">
-          <Link
-            to="/signup"
-            className="w-full py-2.5 rounded-xl text-white text-sm font-medium flex items-center justify-center gap-2 transition hover:opacity-90"
-            style={{ backgroundColor: BRAND }}
-          >
-            <FaRobot className="text-sm" />
-            Sign up to ask AI & chat
-          </Link>
-          <p className="text-[10px] text-gray-500 text-center mt-2">
-            Guests can view AI notes but need an account to interact.
-          </p>
-        </div>
+        <GuestAIPanelContent
+          tab={tab}
+          setTab={setTab}
+          aiEnabled={aiEnabled}
+          transcript={transcript}
+          liveSummary={liveSummary}
+          chatMessages={chatMessages}
+          noteReady={noteReady}
+          onClose={onClose}
+        />
       </div>
     </div>
   );
 };
+
+// ═════════════════════════════════════════════════════════════════════
+// Guest AI sidebar — desktop
+// ═════════════════════════════════════════════════════════════════════
+const GuestAISidebar = ({
+  width,
+  onClose,
+  tab,
+  setTab,
+  aiEnabled,
+  transcript,
+  liveSummary,
+  chatMessages,
+  noteReady,
+}) => (
+  <div
+    style={{ width }}
+    className="h-full flex flex-col bg-[#0f0f15] border-l border-white/10 flex-shrink-0 min-w-0"
+  >
+    <GuestAIPanelContent
+      tab={tab}
+      setTab={setTab}
+      aiEnabled={aiEnabled}
+      transcript={transcript}
+      liveSummary={liveSummary}
+      chatMessages={chatMessages}
+      noteReady={noteReady}
+      onClose={onClose}
+    />
+  </div>
+);
 
 // ─────────────────────────────────────────────────────────────────────
 // Data saver menu (client-side only for guests)
@@ -543,7 +759,7 @@ const GuestDataSaverMenu = ({ open, onClose, dataSaver, onChange }) => {
   return (
     <>
       <div className="fixed inset-0 z-[68]" onClick={onClose} />
-      <div className="absolute bottom-24 right-4 z-[69] bg-[#1a1a24] border border-white/10 rounded-2xl shadow-2xl p-3 w-64">
+      <div className="fixed bottom-24 right-4 z-[69] bg-[#1a1a24] border border-white/10 rounded-2xl shadow-2xl p-3 w-64">
         <div className="flex items-center justify-between mb-2">
           <p className="text-sm font-semibold">Data saver</p>
           <FaWifi className="text-xs text-gray-400" />
@@ -580,7 +796,7 @@ const GuestDataSaverMenu = ({ open, onClose, dataSaver, onChange }) => {
 };
 
 // ═════════════════════════════════════════════════════════════════════
-// Guest stage (inside LiveKit) — screen share + data saver + AI button
+// Guest stage (inside LiveKit)
 // ═════════════════════════════════════════════════════════════════════
 const GuestCallStage = ({
   isVideo,
@@ -588,8 +804,14 @@ const GuestCallStage = ({
   deviceError,
   code,
   aiEnabled,
-  transcriptCount,
-  onOpenAIPanel,
+  transcript,
+  liveSummary,
+  chatMessages,
+  noteReady,
+  aiPanelOpen,
+  setAiPanelOpen,
+  aiTab,
+  setAiTab,
   raisedHands,
   dataSaver,
   onDataSaverChange,
@@ -604,11 +826,72 @@ const GuestCallStage = ({
     isCameraEnabled,
     isScreenShareEnabled,
   } = useLocalParticipant();
+  const isDesktop = useIsDesktop();
 
-  const [pinned, setPinned] = useState(null);
-  const [lastSpeaker, setLastSpeaker] = useState(null);
+  const [popped, setPopped] = useState(null);
   const [secs, setSecs] = useState(0);
   const [dataSaverOpen, setDataSaverOpen] = useState(false);
+
+  // Sidebar width + resize
+  const [sidebarWidth, setSidebarWidth] = useState(360);
+  const [resizing, setResizing] = useState(false);
+  const resizeStartRef = useRef({ x: 0, width: 0 });
+
+  const startResize = useCallback(
+    (e) => {
+      const clientX = e.touches?.[0]?.clientX ?? e.clientX;
+      resizeStartRef.current = { x: clientX, width: sidebarWidth };
+      setResizing(true);
+    },
+    [sidebarWidth]
+  );
+
+  useEffect(() => {
+    if (!resizing) return undefined;
+    const onMove = (e) => {
+      const clientX = e.touches?.[0]?.clientX ?? e.clientX;
+      const delta = resizeStartRef.current.x - clientX;
+      const maxW = Math.min(
+        MAX_SIDEBAR_WIDTH,
+        (typeof window !== 'undefined' ? window.innerWidth : 1400) - 420
+      );
+      const next = Math.max(
+        MIN_SIDEBAR_WIDTH,
+        Math.min(maxW, resizeStartRef.current.width + delta)
+      );
+      setSidebarWidth(next);
+    };
+    const onUp = () => setResizing(false);
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    window.addEventListener('touchmove', onMove, { passive: true });
+    window.addEventListener('touchend', onUp);
+
+    const prevUserSelect = document.body.style.userSelect;
+    const prevCursor = document.body.style.cursor;
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'col-resize';
+
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('touchmove', onMove);
+      window.removeEventListener('touchend', onUp);
+      document.body.style.userSelect = prevUserSelect;
+      document.body.style.cursor = prevCursor;
+    };
+  }, [resizing]);
+
+  // Close popup if participant leaves
+  useEffect(() => {
+    if (
+      popped &&
+      !participants.find((p) => p.identity === popped.identity)
+    ) {
+      setPopped(null);
+    }
+  }, [participants, popped]);
 
   const localScreenShare = screenTracks.find(
     (t) => t.participant.isLocal && !t.publication?.isMuted
@@ -616,22 +899,18 @@ const GuestCallStage = ({
   const remoteScreenShare = screenTracks.find(
     (t) => !t.participant.isLocal && !t.publication?.isMuted
   );
-  // A remote share always takes the main stage. Your own share shows as a
-  // "you're sharing" card (rendering it back would create a mirror tunnel).
   const activeScreen = remoteScreenShare || localScreenShare;
   const isSharingScreen = !!isScreenShareEnabled;
   const presenter = activeScreen?.participant;
 
   const toggleScreenShare = useCallback(async () => {
     if (!localParticipant) return;
-
     if (!SCREEN_SHARE_SUPPORTED) {
       toast.info(
         'Screen sharing isn’t supported on this device. Use a desktop browser to share.'
       );
       return;
     }
-
     const enabling = !isSharingScreen;
     try {
       await localParticipant.setScreenShareEnabled(
@@ -645,7 +924,7 @@ const GuestCallStage = ({
         err?.name === 'NotAllowedError' &&
         /permission denied|cancel/i.test(msg)
       ) {
-        return; // user closed the picker
+        return;
       }
       if (err?.name === 'NotAllowedError') {
         toast.error('Screen share was blocked. Check browser permissions.');
@@ -713,18 +992,6 @@ const GuestCallStage = ({
     return () => clearInterval(t);
   }, []);
 
-  useEffect(() => {
-    const remote = speaking.find((p) => !p.isLocal);
-    if (remote) setLastSpeaker(remote.identity);
-  }, [speaking]);
-
-  const remotes = participants.filter((p) => !p.isLocal);
-  const mainP =
-    participants.find((p) => p.identity === pinned) ||
-    remotes.find((p) => p.identity === lastSpeaker) ||
-    remotes[0] ||
-    localParticipant;
-
   const camRefFor = (p) =>
     cameraTracks.find((t) => t.participant.identity === p.identity);
 
@@ -748,215 +1015,304 @@ const GuestCallStage = ({
   const showCameraControls = isVideo || isSharingScreen || isCameraEnabled;
 
   return (
-    <div className="h-dvh bg-[#0b0b10] text-white flex flex-col">
-      {/* Header */}
-      <div
-        className="px-4 py-3 flex items-center justify-between border-b border-white/10 gap-2"
-        style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top, 0px))' }}
-      >
-        <div className="min-w-0">
-          <h3 className="text-base font-semibold truncate flex items-center gap-2">
-            {isVideo ? 'Video Meeting' : 'Voice Meeting'}
-            {aiEnabled && (
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-500/20 text-green-400 flex items-center gap-1">
-                <FaRobot /> AI
-              </span>
+    <>
+      <div className="h-dvh bg-[#0b0b10] text-white flex flex-col overflow-hidden">
+        <GlobalStyles />
+
+        {/* Header */}
+        <div
+          className="px-3 sm:px-4 py-2.5 sm:py-3 flex items-center justify-between border-b border-white/10 gap-2 flex-shrink-0"
+          style={{ paddingTop: 'calc(0.65rem + env(safe-area-inset-top, 0px))' }}
+        >
+          <div className="min-w-0 flex-1">
+            <h3 className="text-sm sm:text-base font-semibold truncate flex items-center gap-2">
+              {isVideo ? 'Video Meeting' : 'Voice Meeting'}
+              {aiEnabled && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-500/20 text-green-400 flex items-center gap-1">
+                  <FaRobot /> AI
+                </span>
+              )}
+              {isSharingScreen && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-teal-500/20 text-teal-300 flex items-center gap-1">
+                  <FaDesktop /> Sharing
+                </span>
+              )}
+              {handsUpCount > 0 && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 flex items-center gap-1">
+                  <FaHandPaper /> {handsUpCount}
+                </span>
+              )}
+            </h3>
+            <p className="text-[11px] sm:text-xs text-gray-400 truncate">
+              {participants.length} participant
+              {participants.length === 1 ? '' : 's'}
+              {code && <span className="ml-2 text-gray-500">· {code}</span>}
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {isDesktop && (
+              <button
+                onClick={() => setAiPanelOpen((v) => !v)}
+                title={aiPanelOpen ? 'Hide AI panel' : 'Show AI panel'}
+                className={`h-9 px-2.5 rounded-lg flex items-center justify-center gap-1.5 text-xs font-medium transition ${
+                  aiPanelOpen
+                    ? 'bg-teal-600 hover:bg-teal-700'
+                    : 'bg-white/10 hover:bg-white/20'
+                }`}
+              >
+                <FaRobot />
+                <span className="hidden lg:inline">AI</span>
+              </button>
             )}
-            {isSharingScreen && (
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-teal-500/20 text-teal-300 flex items-center gap-1">
-                <FaDesktop /> Sharing
-              </span>
-            )}
-            {handsUpCount > 0 && (
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 flex items-center gap-1">
-                <FaHandPaper /> {handsUpCount}
-              </span>
-            )}
-          </h3>
-          <p className="text-xs text-gray-400">
-            {participants.length} participant{participants.length === 1 ? '' : 's'}
-            {code && <span className="ml-2 text-gray-500">· {code}</span>}
-          </p>
+            <span className="text-sm tabular-nums text-gray-300">
+              {formatClock(secs)}
+            </span>
+          </div>
         </div>
-        <span className="text-sm tabular-nums text-gray-300">{formatClock(secs)}</span>
-      </div>
 
-      {deviceError && (
-        <div className="mx-3 mt-3 flex items-center gap-2 rounded-xl bg-red-500/15 border border-red-500/30 px-3 py-2 text-sm text-red-300">
-          <FaExclamationTriangle className="flex-shrink-0" />
-          <span>{deviceError}</span>
-        </div>
-      )}
+        {deviceError && (
+          <div className="mx-2 sm:mx-3 mt-2 flex items-center gap-2 rounded-xl bg-red-500/15 border border-red-500/30 px-3 py-2 text-sm text-red-300 flex-shrink-0">
+            <FaExclamationTriangle className="flex-shrink-0" />
+            <span>{deviceError}</span>
+          </div>
+        )}
 
-      {/* Thumbnails */}
-      <div className="flex gap-2 overflow-x-auto px-3 py-3 flex-shrink-0">
-        {participants.map((p) => (
-          <ParticipantTile
-            key={p.identity}
-            participant={p}
-            cameraRef={camRefFor(p)}
-            variant="thumb"
-            active={p.identity === mainP?.identity}
-            onClick={() => setPinned(p.identity)}
-          />
-        ))}
-      </div>
+        {/* Main split area */}
+        <div className="flex-1 min-h-0 flex">
+          {/* LEFT: video area */}
+          <div className="flex-1 min-w-0 flex flex-col relative">
+            <div className="flex-1 min-h-0 p-2 sm:p-3">
+              {activeScreen ? (
+                <div className="h-full flex flex-col gap-2">
+                  <div className="flex-1 min-h-0 relative rounded-2xl overflow-hidden bg-black">
+                    {activeScreen.participant.isLocal ? (
+                      <div className="w-full h-full flex flex-col items-center justify-center gap-4 text-center px-6">
+                        <FaDesktop className="text-4xl" style={{ color: BRAND }} />
+                        <div>
+                          <p className="text-lg font-semibold">
+                            You’re sharing your screen
+                          </p>
+                          <p className="text-sm text-gray-400 mt-1">
+                            Everyone in the meeting can see it.
+                          </p>
+                        </div>
+                        <button
+                          onClick={toggleScreenShare}
+                          className="px-5 py-2.5 rounded-full bg-red-600 hover:bg-red-700 text-sm font-medium"
+                        >
+                          Stop sharing
+                        </button>
+                      </div>
+                    ) : (
+                      <VideoTrack
+                        trackRef={activeScreen}
+                        className="w-full h-full object-contain"
+                      />
+                    )}
 
-      {/* Main stage — a shared screen takes priority, presenter's face in the corner */}
-      <div className="flex-1 min-h-0 px-3 pb-3">
-        {activeScreen ? (
-          <div className="relative w-full h-full rounded-3xl overflow-hidden bg-black">
-            {activeScreen.participant.isLocal ? (
-              <div className="w-full h-full flex flex-col items-center justify-center gap-4 text-center px-6">
-                <FaDesktop className="text-4xl" style={{ color: BRAND }} />
-                <div>
-                  <p className="text-lg font-semibold">
-                    You’re sharing your screen
-                  </p>
-                  <p className="text-sm text-gray-400 mt-1">
-                    Everyone in the meeting can see it.
-                  </p>
+                    <div className="absolute bottom-2 left-2 bg-black/70 rounded-full px-3 py-1 text-xs flex items-center gap-1.5 pointer-events-none">
+                      <FaDesktop className="text-[10px]" />
+                      {activeScreen.participant.isLocal
+                        ? 'Your screen'
+                        : `${getInfo(activeScreen.participant).name}'s screen`}
+                    </div>
+
+                    {presenter && (
+                      <PipBubble
+                        participant={presenter}
+                        cameraRef={camRefFor(presenter)}
+                      />
+                    )}
+                  </div>
+
+                  {/* Participant strip below share */}
+                  <div className="flex gap-2 overflow-x-auto flex-shrink-0 pb-1">
+                    {participants
+                      .filter(
+                        (p) => p.identity !== activeScreen.participant.identity
+                      )
+                      .map((p) => (
+                        <div
+                          key={p.identity}
+                          className="w-24 h-16 sm:w-32 sm:h-20 flex-shrink-0"
+                        >
+                          <GridTile
+                            participant={p}
+                            cameraRef={camRefFor(p)}
+                            onClick={() => setPopped(p)}
+                          />
+                        </div>
+                      ))}
+                  </div>
                 </div>
-                <button
-                  onClick={toggleScreenShare}
-                  className="px-5 py-2.5 rounded-full bg-red-600 hover:bg-red-700 text-sm font-medium"
-                >
-                  Stop sharing
-                </button>
-              </div>
-            ) : (
-              <VideoTrack
-                trackRef={activeScreen}
-                className="w-full h-full object-contain"
-              />
-            )}
-
-            <div className="absolute bottom-2 left-2 bg-black/70 rounded-full px-3 py-1 text-xs flex items-center gap-1.5">
-              <FaDesktop className="text-[10px]" />
-              {activeScreen.participant.isLocal
-                ? 'Your screen'
-                : `${getInfo(activeScreen.participant).name}'s screen`}
+              ) : (
+                <VideoGrid
+                  participants={participants}
+                  camRefFor={camRefFor}
+                  onSelect={(p) => setPopped(p)}
+                  isDesktop={isDesktop}
+                />
+              )}
             </div>
 
-            {presenter && (
-              <PipBubble
-                participant={presenter}
-                cameraRef={camRefFor(presenter)}
-              />
-            )}
-          </div>
-        ) : (
-          mainP && (
-            <ParticipantTile
-              participant={mainP}
-              cameraRef={camRefFor(mainP)}
-              variant="main"
+            <RoomAudioRenderer />
+            <StartAudio
+              label="Tap to enable audio"
+              className="fixed top-24 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-full bg-white text-gray-900 font-medium shadow-lg"
             />
-          )
-        )}
-      </div>
 
-      <RoomAudioRenderer />
-      <StartAudio
-        label="Tap to enable audio"
-        className="fixed top-24 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-full bg-white text-gray-900 font-medium shadow-lg"
-      />
+            {/* Floating AI panel button (inside video column) */}
+            <button
+              onClick={() => setAiPanelOpen((v) => !v)}
+              className="absolute bottom-20 right-3 z-[65] w-12 h-12 rounded-xl flex items-center justify-center shadow-xl transition active:scale-95"
+              style={{ backgroundColor: BRAND }}
+              title="Open AI panel"
+            >
+              <FaRobot className="text-lg" />
+              {transcript.length > 0 && (
+                <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-bold rounded-md min-w-[18px] h-[18px] px-1 flex items-center justify-center">
+                  {transcript.length > 99 ? '99+' : transcript.length}
+                </span>
+              )}
+            </button>
 
-      {/* Floating AI panel button */}
-      <button
-        onClick={onOpenAIPanel}
-        className="fixed bottom-28 right-4 z-[65] w-14 h-14 rounded-full flex items-center justify-center shadow-xl transition"
-        style={{ backgroundColor: BRAND }}
-        title="Open AI notes"
-      >
-        <FaRobot className="text-xl" />
-        {transcriptCount > 0 && (
-          <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-bold rounded-full min-w-[20px] h-5 px-1 flex items-center justify-center">
-            {transcriptCount > 99 ? '99+' : transcriptCount}
-          </span>
-        )}
-      </button>
+            {/* Controls */}
+            <div
+              className="px-2 sm:px-4 py-2.5 sm:py-4 bg-white/5 border-t border-white/10 flex items-center justify-center gap-2 sm:gap-3 relative flex-shrink-0"
+              style={{
+                paddingBottom: 'calc(0.65rem + env(safe-area-inset-bottom, 0px))',
+              }}
+            >
+              <button
+                onClick={toggleMic}
+                className={`w-11 h-11 sm:w-12 sm:h-12 rounded-full flex items-center justify-center transition ${
+                  isMicrophoneEnabled
+                    ? 'bg-gray-600 hover:bg-gray-500'
+                    : 'bg-red-600'
+                }`}
+                aria-label={isMicrophoneEnabled ? 'Mute' : 'Unmute'}
+              >
+                {isMicrophoneEnabled ? (
+                  <FaMicrophone className="text-lg" />
+                ) : (
+                  <FaMicrophoneSlash className="text-lg" />
+                )}
+              </button>
 
-      {/* Controls */}
-      <div
-        className="px-4 py-4 bg-white/5 border-t border-white/10 flex items-center justify-center gap-3 relative"
-        style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom, 0px))' }}
-      >
-        <button
-          onClick={toggleMic}
-          className={`w-12 h-12 rounded-full flex items-center justify-center transition ${
-            isMicrophoneEnabled ? 'bg-gray-600 hover:bg-gray-500' : 'bg-red-600'
-          }`}
-          aria-label={isMicrophoneEnabled ? 'Mute' : 'Unmute'}
-        >
-          {isMicrophoneEnabled ? (
-            <FaMicrophone className="text-lg" />
-          ) : (
-            <FaMicrophoneSlash className="text-lg" />
+              {showCameraControls && (
+                <button
+                  onClick={toggleCam}
+                  className={`w-11 h-11 sm:w-12 sm:h-12 rounded-full flex items-center justify-center transition ${
+                    isCameraEnabled
+                      ? 'bg-gray-600 hover:bg-gray-500'
+                      : 'bg-red-600'
+                  }`}
+                  aria-label={isCameraEnabled ? 'Camera off' : 'Camera on'}
+                >
+                  {isCameraEnabled ? (
+                    <FaVideo className="text-lg" />
+                  ) : (
+                    <FaVideoSlash className="text-lg" />
+                  )}
+                </button>
+              )}
+
+              {SCREEN_SHARE_SUPPORTED && (
+                <button
+                  onClick={toggleScreenShare}
+                  className={`w-11 h-11 sm:w-12 sm:h-12 rounded-full flex items-center justify-center transition ${
+                    isSharingScreen
+                      ? 'bg-teal-600 hover:bg-teal-700'
+                      : 'bg-gray-600 hover:bg-gray-500'
+                  }`}
+                  aria-label={isSharingScreen ? 'Stop sharing' : 'Share screen'}
+                >
+                  <FaDesktop className="text-lg" />
+                </button>
+              )}
+
+              <button
+                onClick={() => setDataSaverOpen((v) => !v)}
+                className={`w-11 h-11 sm:w-12 sm:h-12 rounded-full flex items-center justify-center transition ${
+                  dataSaver?.enabled || dataSaver?.videoQuality !== 'auto'
+                    ? 'bg-yellow-500 text-black'
+                    : 'bg-gray-600 hover:bg-gray-500'
+                }`}
+                aria-label="Data saver"
+                title="Data saver"
+              >
+                <FaWifi className="text-lg" />
+              </button>
+
+              <button
+                onClick={onHangUp}
+                className="w-12 h-12 sm:w-14 sm:h-14 bg-red-600 hover:bg-red-700 rounded-full flex items-center justify-center transition shadow-lg ml-1"
+                aria-label="Leave call"
+              >
+                <FaPhoneSlash className="text-lg sm:text-xl" />
+              </button>
+
+              <GuestDataSaverMenu
+                open={dataSaverOpen}
+                onClose={() => setDataSaverOpen(false)}
+                dataSaver={dataSaver}
+                onChange={onDataSaverChange}
+              />
+            </div>
+          </div>
+
+          {/* RIGHT: AI sidebar (desktop only) */}
+          {isDesktop && aiPanelOpen && (
+            <>
+              <div
+                onMouseDown={startResize}
+                onTouchStart={startResize}
+                className={`w-1.5 cursor-col-resize flex-shrink-0 transition-colors ${
+                  resizing ? 'bg-teal-500' : 'bg-white/5 hover:bg-teal-500/60'
+                }`}
+                style={{ touchAction: 'none' }}
+              />
+              <GuestAISidebar
+                width={sidebarWidth}
+                onClose={() => setAiPanelOpen(false)}
+                tab={aiTab}
+                setTab={setAiTab}
+                aiEnabled={aiEnabled}
+                transcript={transcript}
+                liveSummary={liveSummary}
+                chatMessages={chatMessages}
+                noteReady={noteReady}
+              />
+            </>
           )}
-        </button>
-
-        {showCameraControls && (
-          <button
-            onClick={toggleCam}
-            className={`w-12 h-12 rounded-full flex items-center justify-center transition ${
-              isCameraEnabled ? 'bg-gray-600 hover:bg-gray-500' : 'bg-red-600'
-            }`}
-            aria-label={isCameraEnabled ? 'Camera off' : 'Camera on'}
-          >
-            {isCameraEnabled ? (
-              <FaVideo className="text-lg" />
-            ) : (
-              <FaVideoSlash className="text-lg" />
-            )}
-          </button>
-        )}
-
-        {SCREEN_SHARE_SUPPORTED && (
-          <button
-            onClick={toggleScreenShare}
-            className={`w-12 h-12 rounded-full flex items-center justify-center transition ${
-              isSharingScreen
-                ? 'bg-teal-600 hover:bg-teal-700'
-                : 'bg-gray-600 hover:bg-gray-500'
-            }`}
-            aria-label={isSharingScreen ? 'Stop sharing' : 'Share screen'}
-            title={isSharingScreen ? 'Stop sharing' : 'Share screen'}
-          >
-            <FaDesktop className="text-lg" />
-          </button>
-        )}
-
-        {/* Data saver */}
-        <button
-          onClick={() => setDataSaverOpen((v) => !v)}
-          className={`w-12 h-12 rounded-full flex items-center justify-center transition ${
-            dataSaver?.enabled || dataSaver?.videoQuality !== 'auto'
-              ? 'bg-yellow-500 text-black'
-              : 'bg-gray-600 hover:bg-gray-500'
-          }`}
-          aria-label="Data saver"
-          title="Data saver"
-        >
-          <FaWifi className="text-lg" />
-        </button>
-
-        <button
-          onClick={onHangUp}
-          className="w-14 h-14 bg-red-600 hover:bg-red-700 rounded-full flex items-center justify-center transition shadow-lg"
-          aria-label="Leave call"
-        >
-          <FaPhoneSlash className="text-xl" />
-        </button>
-
-        <GuestDataSaverMenu
-          open={dataSaverOpen}
-          onClose={() => setDataSaverOpen(false)}
-          dataSaver={dataSaver}
-          onChange={onDataSaverChange}
-        />
+        </div>
       </div>
-    </div>
+
+      {/* Participant popup */}
+      {popped && (
+        <ParticipantPopup
+          participant={popped}
+          cameraRef={camRefFor(popped)}
+          onClose={() => setPopped(null)}
+        />
+      )}
+
+      {/* Mobile overlay */}
+      {!isDesktop && (
+        <GuestAIPanelOverlay
+          open={aiPanelOpen}
+          onClose={() => setAiPanelOpen(false)}
+          tab={aiTab}
+          setTab={setAiTab}
+          aiEnabled={aiEnabled}
+          transcript={transcript}
+          liveSummary={liveSummary}
+          chatMessages={chatMessages}
+          noteReady={noteReady}
+        />
+      )}
+    </>
   );
 };
 
@@ -995,7 +1351,7 @@ const JoinCall = () => {
   const [guestTokenData, setGuestTokenData] = useState(null);
   const [callType, setCallType] = useState('video');
 
-  // ─── AI state (populated on join + refreshed via polling) ──
+  // ─── AI state ─────────────────────────────────────────────
   const [aiEnabled, setAiEnabled] = useState(false);
   const [transcript, setTranscript] = useState([]);
   const [liveSummary, setLiveSummary] = useState(null);
@@ -1008,8 +1364,10 @@ const JoinCall = () => {
     videoQuality: 'auto',
   });
 
-  // AI panel
-  const [aiPanelOpen, setAiPanelOpen] = useState(false);
+  // AI panel — default open on desktop, closed on mobile
+  const [aiPanelOpen, setAiPanelOpen] = useState(
+    () => typeof window !== 'undefined' && window.innerWidth >= 768
+  );
   const [aiTab, setAiTab] = useState('summary');
 
   const leavingRef = useRef(false);
@@ -1039,7 +1397,6 @@ const JoinCall = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [code, isLoggedIn]);
 
-  // ─── Fetch guest token (creates guest record — one-time) ──
   const fetchGuestToken = async (guestName) => {
     const url = `${API_BASE}/calls/guest-token/${encodeURIComponent(code.trim())}`;
     const res = await fetch(url, {
@@ -1052,11 +1409,11 @@ const JoinCall = () => {
     return data;
   };
 
-  // ─── Guest submits name ───────────────────────────────────
   const handleGuestJoin = async () => {
     const trimmed = name.trim();
     if (!trimmed) return toast.error('Please enter your name');
-    if (trimmed.length > 50) return toast.error('Name is too long (max 50 chars)');
+    if (trimmed.length > 50)
+      return toast.error('Name is too long (max 50 chars)');
 
     setPhase('connecting');
     setErrorMsg('');
@@ -1067,11 +1424,12 @@ const JoinCall = () => {
       setGuestTokenData(data);
       setCallType(data.type || 'video');
 
-      // Hydrate AI state from the token response
       if (data.ai?.enabled) setAiEnabled(true);
-      if (Array.isArray(data.recentTranscript)) setTranscript(data.recentTranscript);
+      if (Array.isArray(data.recentTranscript))
+        setTranscript(data.recentTranscript);
       if (data.liveSummary) setLiveSummary(data.liveSummary);
-      if (Array.isArray(data.recentMessages)) setChatMessages(data.recentMessages);
+      if (Array.isArray(data.recentMessages))
+        setChatMessages(data.recentMessages);
       if (Array.isArray(data.raisedHands)) setRaisedHands(data.raisedHands);
       if (data.ai?.generatedNoteId) {
         setNoteReady({
@@ -1095,14 +1453,16 @@ const JoinCall = () => {
     }
   };
 
-  // ─── Poll public state every 15s (while in-call) ──────────
+  // Poll public state every 15s
   useEffect(() => {
     if (phase !== 'in-call' || !code) return undefined;
     let cancelled = false;
 
     const fetchState = async () => {
       try {
-        const url = `${API_BASE}/calls/public/${encodeURIComponent(code.trim())}/state`;
+        const url = `${API_BASE}/calls/public/${encodeURIComponent(
+          code.trim()
+        )}/state`;
         const res = await fetch(url);
         if (cancelled) return;
         if (res.status === 404) {
@@ -1114,9 +1474,11 @@ const JoinCall = () => {
         if (cancelled || !data.success) return;
 
         setAiEnabled(!!data.ai?.enabled);
-        if (Array.isArray(data.recentTranscript)) setTranscript(data.recentTranscript);
+        if (Array.isArray(data.recentTranscript))
+          setTranscript(data.recentTranscript);
         setLiveSummary(data.liveSummary || null);
-        if (Array.isArray(data.recentMessages)) setChatMessages(data.recentMessages);
+        if (Array.isArray(data.recentMessages))
+          setChatMessages(data.recentMessages);
         if (Array.isArray(data.raisedHands)) setRaisedHands(data.raisedHands);
         if (data.ai?.generatedNoteId) {
           setNoteReady({
@@ -1138,12 +1500,10 @@ const JoinCall = () => {
     };
   }, [phase, code]);
 
-  // ─── Client-side data saver (no backend call — guests can't auth) ──
   const handleDataSaverChange = useCallback((patch) => {
     setDataSaver((prev) => ({ ...prev, ...patch }));
   }, []);
 
-  // ─── Retry permission (token already cached) ──────────────
   const retryPermission = async () => {
     setPermError('');
     const perm = await ensureCallPermissions(false);
@@ -1154,7 +1514,6 @@ const JoinCall = () => {
     setPhase('in-call');
   };
 
-  // ─── Disconnect handlers ──────────────────────────────────
   const handleDisconnected = useCallback((reason) => {
     if (leavingRef.current) return;
     if (reason === DisconnectReason.CLIENT_INITIATED) return;
@@ -1173,9 +1532,7 @@ const JoinCall = () => {
 
   const goHome = () => navigate('/', { replace: true });
 
-  // ═══════════════════════════════════════════════════════════
-  // Phase: loading
-  // ═══════════════════════════════════════════════════════════
+  // ─── Phase: loading ───────────────────────────────────────
   if (phase === 'loading') {
     return (
       <>
@@ -1188,9 +1545,7 @@ const JoinCall = () => {
     );
   }
 
-  // ═══════════════════════════════════════════════════════════
-  // Phase: connecting
-  // ═══════════════════════════════════════════════════════════
+  // ─── Phase: connecting ────────────────────────────────────
   if (phase === 'connecting') {
     return (
       <>
@@ -1204,9 +1559,7 @@ const JoinCall = () => {
     );
   }
 
-  // ═══════════════════════════════════════════════════════════
-  // Phase: error
-  // ═══════════════════════════════════════════════════════════
+  // ─── Phase: error ─────────────────────────────────────────
   if (phase === 'error') {
     return (
       <>
@@ -1217,7 +1570,9 @@ const JoinCall = () => {
               <FaExclamationTriangle className="text-red-400 text-2xl" />
             </div>
             <h2 className="text-xl font-bold mb-2">Can't join this meeting</h2>
-            <p className="text-gray-400 text-sm mb-6 leading-relaxed">{errorMsg}</p>
+            <p className="text-gray-400 text-sm mb-6 leading-relaxed">
+              {errorMsg}
+            </p>
             <div className="flex flex-col gap-2">
               {!isLoggedIn && (
                 <Link
@@ -1241,9 +1596,7 @@ const JoinCall = () => {
     );
   }
 
-  // ═══════════════════════════════════════════════════════════
-  // Phase: permission-denied
-  // ═══════════════════════════════════════════════════════════
+  // ─── Phase: permission-denied ─────────────────────────────
   if (phase === 'permission-denied') {
     return (
       <>
@@ -1254,7 +1607,9 @@ const JoinCall = () => {
               <FaMicrophoneSlash className="text-amber-400 text-2xl" />
             </div>
             <h2 className="text-xl font-bold mb-2">Microphone needed</h2>
-            <p className="text-gray-400 text-sm mb-6 leading-relaxed">{permError}</p>
+            <p className="text-gray-400 text-sm mb-6 leading-relaxed">
+              {permError}
+            </p>
             <div className="flex gap-2">
               <button
                 onClick={() => setPhase('need-name')}
@@ -1276,9 +1631,7 @@ const JoinCall = () => {
     );
   }
 
-  // ═══════════════════════════════════════════════════════════
-  // Phase: need-name (guest form)
-  // ═══════════════════════════════════════════════════════════
+  // ─── Phase: need-name ─────────────────────────────────────
   if (phase === 'need-name') {
     return (
       <>
@@ -1351,7 +1704,8 @@ const JoinCall = () => {
                 </Link>
               </p>
               <p className="text-[11px] text-gray-600 flex items-center justify-center gap-1">
-                <FaLock className="text-[9px]" /> Your name is only shown in this call
+                <FaLock className="text-[9px]" /> Your name is only shown in this
+                call
               </p>
             </div>
           </div>
@@ -1360,9 +1714,7 @@ const JoinCall = () => {
     );
   }
 
-  // ═══════════════════════════════════════════════════════════
-  // Phase: in-call (LiveKit)
-  // ═══════════════════════════════════════════════════════════
+  // ─── Phase: in-call ───────────────────────────────────────
   if (phase === 'in-call' && guestTokenData && !connectionLost) {
     return (
       <>
@@ -1383,32 +1735,24 @@ const JoinCall = () => {
             deviceError={deviceError}
             code={code}
             aiEnabled={aiEnabled}
-            transcriptCount={transcript.length}
-            onOpenAIPanel={() => setAiPanelOpen(true)}
+            transcript={transcript}
+            liveSummary={liveSummary}
+            chatMessages={chatMessages}
+            noteReady={noteReady}
+            aiPanelOpen={aiPanelOpen}
+            setAiPanelOpen={setAiPanelOpen}
+            aiTab={aiTab}
+            setAiTab={setAiTab}
             raisedHands={raisedHands}
             dataSaver={dataSaver}
             onDataSaverChange={handleDataSaverChange}
           />
         </LiveKitRoom>
-
-        <GuestAIPanel
-          open={aiPanelOpen}
-          onClose={() => setAiPanelOpen(false)}
-          tab={aiTab}
-          setTab={setAiTab}
-          aiEnabled={aiEnabled}
-          transcript={transcript}
-          liveSummary={liveSummary}
-          chatMessages={chatMessages}
-          noteReady={noteReady}
-        />
       </>
     );
   }
 
-  // ═══════════════════════════════════════════════════════════
-  // Phase: connection lost
-  // ═══════════════════════════════════════════════════════════
+  // ─── Phase: connection lost ───────────────────────────────
   if (connectionLost) {
     return (
       <>
@@ -1433,9 +1777,7 @@ const JoinCall = () => {
     );
   }
 
-  // ═══════════════════════════════════════════════════════════
-  // Phase: ended
-  // ═══════════════════════════════════════════════════════════
+  // ─── Phase: ended ─────────────────────────────────────────
   return (
     <>
       <GlobalStyles />

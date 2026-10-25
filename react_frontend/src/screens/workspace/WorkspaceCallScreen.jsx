@@ -48,7 +48,6 @@ import {
   FaSyncAlt,
   FaDesktop,
   FaVolumeUp,
-  // ── AI + meeting controls ──
   FaRobot,
   FaBrain,
   FaPaperPlane,
@@ -96,6 +95,8 @@ const ROOM_OPTIONS = {
   },
 };
 const POLL_MS = 20_000;
+const MIN_CHAT_WIDTH = 300;
+const MAX_CHAT_WIDTH = 720;
 
 const IS_NATIVE = Capacitor.isNativePlatform();
 
@@ -144,8 +145,6 @@ const IS_TOUCH_DEVICE =
     navigator.userAgent
   );
 
-// Phones and the Capacitor WebView don't expose getDisplayMedia,
-// so sharing is only offered in desktop browsers.
 const SCREEN_SHARE_SUPPORTED =
   typeof navigator !== 'undefined' &&
   !!navigator.mediaDevices &&
@@ -153,31 +152,43 @@ const SCREEN_SHARE_SUPPORTED =
   !IS_NATIVE;
 
 // ─────────────────────────────────────────────────────────────────────
-// Keep-alive hooks (call keeps running when the user leaves the app)
+// useIsDesktop
 // ─────────────────────────────────────────────────────────────────────
+const useIsDesktop = () => {
+  const [isDesktop, setIsDesktop] = useState(
+    () => typeof window !== 'undefined' && window.innerWidth >= 768
+  );
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const mq = window.matchMedia('(min-width: 768px)');
+    const handler = (e) => setIsDesktop(e.matches);
+    if (mq.addEventListener) mq.addEventListener('change', handler);
+    else mq.addListener?.(handler);
+    setIsDesktop(mq.matches);
+    return () => {
+      if (mq.removeEventListener) mq.removeEventListener('change', handler);
+      else mq.removeListener?.(handler);
+    };
+  }, []);
+  return isDesktop;
+};
 
-/**
- * Android (Capacitor): starts a foreground service with the microphone
- * type so the OS keeps the process + mic alive while the app is in the
- * background. Shows a persistent "call in progress" notification.
- */
+// ─────────────────────────────────────────────────────────────────────
+// Keep-alive hooks
+// ─────────────────────────────────────────────────────────────────────
 const useBackgroundCall = (active) => {
   useEffect(() => {
     if (!active || !IS_NATIVE) return undefined;
-
     let cancelled = false;
     let BackgroundMode = null;
-
     (async () => {
       try {
         const mod = await import('@anuradev/capacitor-background-mode');
         if (cancelled) return;
         BackgroundMode = mod.BackgroundMode;
-
         await BackgroundMode.requestNotificationsPermission?.();
         await BackgroundMode.requestMicrophonePermission?.();
         if (cancelled) return;
-
         await BackgroundMode.enable({
           title: 'Xircle call in progress',
           text: 'Tap to return to your call',
@@ -187,7 +198,6 @@ const useBackgroundCall = (active) => {
         console.warn('[background] enable failed:', err);
       }
     })();
-
     return () => {
       cancelled = true;
       try {
@@ -197,30 +207,23 @@ const useBackgroundCall = (active) => {
   }, [active]);
 };
 
-/** Android back button minimizes the app (call keeps running) instead of leaving the call screen. */
 const useMinimizeOnBack = (active) => {
   useEffect(() => {
     if (!active || !IS_NATIVE) return undefined;
-
     let cancelled = false;
     let handle = null;
-
     (async () => {
       try {
         const { App } = await import('@capacitor/app');
         const h = await App.addListener('backButton', () => {
           App.minimizeApp?.();
         });
-        if (cancelled) {
-          h.remove();
-        } else {
-          handle = h;
-        }
+        if (cancelled) h.remove();
+        else handle = h;
       } catch (err) {
         console.warn('[back] listener failed:', err);
       }
     })();
-
     return () => {
       cancelled = true;
       try {
@@ -230,7 +233,6 @@ const useMinimizeOnBack = (active) => {
   }, [active]);
 };
 
-/** Keep the screen awake while in a call (re-acquired after returning to the app). */
 const useWakeLock = (active) => {
   useEffect(() => {
     if (!active || typeof navigator === 'undefined' || !navigator.wakeLock) {
@@ -238,21 +240,16 @@ const useWakeLock = (active) => {
     }
     let lock = null;
     let released = false;
-
     const acquire = async () => {
       try {
         lock = await navigator.wakeLock.request('screen');
-      } catch {
-        /* not allowed right now */
-      }
+      } catch {}
     };
     acquire();
-
     const onVis = () => {
       if (document.visibilityState === 'visible' && !released) acquire();
     };
     document.addEventListener('visibilitychange', onVis);
-
     return () => {
       released = true;
       document.removeEventListener('visibilitychange', onVis);
@@ -264,7 +261,7 @@ const useWakeLock = (active) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// AI helpers — audio playback, voice recorder, live transcript
+// AI helpers
 // ─────────────────────────────────────────────────────────────────────
 const playAudioDataUrl = (base64, format = 'wav', onEnded) => {
   try {
@@ -366,13 +363,11 @@ const useLiveTranscript = ({ enabled, onFinal }) => {
       typeof window !== 'undefined' &&
       (window.SpeechRecognition || window.webkitSpeechRecognition);
     if (!SR) return;
-
     setSupported(true);
     const rec = new SR();
     rec.continuous = true;
     rec.interimResults = true;
     rec.lang = navigator.language || 'en-US';
-
     rec.onresult = (event) => {
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
@@ -381,13 +376,11 @@ const useLiveTranscript = ({ enabled, onFinal }) => {
         if (result.isFinal) onFinalRef.current?.(text);
       }
     };
-
     rec.onerror = (e) => {
       if (e.error !== 'no-speech' && e.error !== 'aborted') {
         console.warn('[SR] error:', e.error);
       }
     };
-
     recognitionRef.current = rec;
     return () => {
       try {
@@ -417,7 +410,7 @@ const useLiveTranscript = ({ enabled, onFinal }) => {
 };
 
 // ═════════════════════════════════════════════════════════════════════
-// Shared visual pieces
+// Shared visual primitives
 // ═════════════════════════════════════════════════════════════════════
 const Avatar = ({ info, size, brandColor }) => {
   const style = { width: size, height: size, fontSize: size * 0.4 };
@@ -427,14 +420,14 @@ const Avatar = ({ info, size, brandColor }) => {
         src={info.profile}
         alt={info.name}
         style={style}
-        className="rounded-full object-cover"
+        className="rounded-full object-cover flex-shrink-0"
       />
     );
   }
   return (
     <div
       style={{ ...style, backgroundColor: brandColor }}
-      className="rounded-full flex items-center justify-center font-bold text-white"
+      className="rounded-full flex items-center justify-center font-bold text-white flex-shrink-0"
     >
       {info.name.charAt(0).toUpperCase()}
     </div>
@@ -487,35 +480,20 @@ const Sheet = ({ open, onClose, title, children, maxWidth = 'sm:max-w-md' }) => 
   );
 };
 
-const ParticipantCard = ({
-  participant,
-  cameraRef,
-  variant,
-  brandColor,
-  active,
-  onClick,
-}) => {
+// ═════════════════════════════════════════════════════════════════════
+// Grid tile
+// ═════════════════════════════════════════════════════════════════════
+const GridTile = ({ participant, cameraRef, brandColor, onClick }) => {
   const isSpeaking = useIsSpeaking(participant);
   const micMuted = useIsMuted(Track.Source.Microphone, { participant });
   const info = getInfo(participant);
-  const isMain = variant === 'main';
   const camOn = !!cameraRef && !cameraRef.publication?.isMuted;
-
-  const ringStyle = isSpeaking
-    ? { boxShadow: `0 0 0 3px ${brandColor}` }
-    : active
-    ? { boxShadow: `0 0 0 2px rgba(255,255,255,0.35)` }
-    : {};
 
   return (
     <div
       onClick={onClick}
-      style={ringStyle}
-      className={`relative overflow-hidden bg-[#1a1a24] transition-shadow ${
-        isMain
-          ? 'w-full h-full rounded-2xl'
-          : 'w-28 h-20 sm:w-36 sm:h-24 rounded-xl flex-shrink-0 cursor-pointer'
-      }`}
+      className="relative w-full h-full overflow-hidden rounded-xl bg-[#1a1a24] cursor-pointer transition-shadow"
+      style={isSpeaking ? { boxShadow: `0 0 0 3px ${brandColor}` } : undefined}
     >
       {camOn ? (
         <VideoTrack
@@ -524,64 +502,209 @@ const ParticipantCard = ({
           style={participant.isLocal ? { transform: 'scaleX(-1)' } : undefined}
         />
       ) : (
-        <div className="w-full h-full flex flex-col items-center justify-center gap-2 px-2">
-          <Avatar info={info} size={isMain ? 112 : 36} brandColor={brandColor} />
-          {isMain && (
-            <div className="text-center">
-              <p className="text-xl font-semibold">
-                {info.name}
-                {participant.isLocal ? ' (You)' : ''}
-              </p>
-              {info.username && (
-                <p className="text-sm text-gray-400">@{info.username}</p>
-              )}
-            </div>
-          )}
+        <div className="w-full h-full flex items-center justify-center px-2">
+          <Avatar info={info} size={56} brandColor={brandColor} />
         </div>
       )}
 
-      {(!isMain || camOn) && (
-        <div className="absolute bottom-1.5 left-1.5 right-1.5 flex items-center gap-1 bg-black/55 rounded-md px-2 py-0.5 text-[11px] sm:text-xs">
-          {micMuted && (
-            <FaMicrophoneSlash className="text-red-400 flex-shrink-0" />
-          )}
-          <span className="truncate">
-            {participant.isLocal ? 'You' : info.name}
-          </span>
-        </div>
-      )}
+      <div className="absolute bottom-1 left-1 right-1 flex items-center gap-1 bg-black/55 rounded-md px-1.5 py-0.5 text-[10px] sm:text-xs pointer-events-none">
+        {micMuted && (
+          <FaMicrophoneSlash className="text-red-400 flex-shrink-0" />
+        )}
+        <span className="truncate">
+          {participant.isLocal ? 'You' : info.name}
+        </span>
+      </div>
 
-      {isMain && (
-        <>
-          {micMuted && (
-            <div className="absolute top-3 right-3 bg-black/55 rounded-lg p-2">
-              <FaMicrophoneSlash className="text-red-400" />
-            </div>
-          )}
-          {isSpeaking && (
-            <div className="absolute top-3 left-3 flex items-end gap-[3px] h-5 bg-black/55 rounded-lg px-3 py-1.5">
-              {[0, 1, 2].map((i) => (
-                <span
-                  key={i}
-                  className="w-[3px] rounded-full call-bar"
-                  style={{
-                    backgroundColor: brandColor,
-                    animationDelay: `${i * 0.15}s`,
-                  }}
-                />
-              ))}
-            </div>
-          )}
-        </>
+      {isSpeaking && (
+        <div className="absolute top-1 right-1 flex items-end gap-[2px] h-4 bg-black/55 rounded-md px-1.5 py-1 pointer-events-none">
+          {[0, 1, 2].map((i) => (
+            <span
+              key={i}
+              className="w-[2px] rounded-full call-bar"
+              style={{
+                backgroundColor: brandColor,
+                animationDelay: `${i * 0.15}s`,
+              }}
+            />
+          ))}
+        </div>
       )}
     </div>
   );
 };
 
-/**
- * Round camera bubble pinned top-right over a shared screen.
- * Shows the presenter's face (or avatar if their camera is off).
- */
+// ═════════════════════════════════════════════════════════════════════
+// VideoGrid
+// ═════════════════════════════════════════════════════════════════════
+const VideoGrid = ({ participants, camRefFor, brandColor, onSelect, isDesktop }) => {
+  const count = participants.length;
+  const wrapRef = useRef(null);
+  const [wrapH, setWrapH] = useState(0);
+
+  let cols = 1;
+  let rows = 1;
+  let special3 = false;
+  let scrollable = false;
+
+  if (isDesktop) {
+    if (count === 1) {
+      cols = 1;
+      rows = 1;
+    } else if (count === 2) {
+      cols = 2;
+      rows = 1;
+    } else if (count <= 4) {
+      cols = 2;
+      rows = 2;
+    } else if (count <= 6) {
+      cols = 3;
+      rows = 2;
+    } else if (count <= 9) {
+      cols = 3;
+      rows = 3;
+    } else {
+      cols = 4;
+      scrollable = true;
+    }
+  } else {
+    if (count === 1) {
+      cols = 1;
+      rows = 1;
+    } else if (count === 2) {
+      cols = 1;
+      rows = 2;
+    } else if (count === 3) {
+      cols = 2;
+      rows = 2;
+      special3 = true;
+    } else if (count === 4) {
+      cols = 2;
+      rows = 2;
+    } else if (count <= 6) {
+      cols = 3;
+      rows = 2;
+    } else if (count <= 9) {
+      cols = 3;
+      rows = 3;
+    } else {
+      cols = 3;
+      scrollable = true;
+    }
+  }
+
+  useEffect(() => {
+    if (!scrollable || !wrapRef.current) return undefined;
+    const el = wrapRef.current;
+    const update = () => setWrapH(el.clientHeight);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [scrollable]);
+
+  if (count === 0) return null;
+
+  const items = participants.map((p, i) => (
+    <div
+      key={p.identity}
+      className="min-h-0 min-w-0"
+      style={special3 && i === 0 ? { gridColumn: 'span 2' } : undefined}
+    >
+      <GridTile
+        participant={p}
+        cameraRef={camRefFor(p)}
+        brandColor={brandColor}
+        onClick={() => onSelect?.(p)}
+      />
+    </div>
+  ));
+
+  if (scrollable) {
+    const rowH = wrapH > 0 ? Math.max(120, (wrapH - 16) / 3) : undefined;
+    return (
+      <div ref={wrapRef} className="h-full overflow-y-auto">
+        <div
+          className="grid gap-2 pb-2"
+          style={{
+            gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
+            ...(rowH ? { gridAutoRows: `${rowH}px` } : {}),
+          }}
+        >
+          {items}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="grid h-full gap-2"
+      style={{
+        gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
+        gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))`,
+      }}
+    >
+      {items}
+    </div>
+  );
+};
+
+// ═════════════════════════════════════════════════════════════════════
+// Participant popup
+// ═════════════════════════════════════════════════════════════════════
+const ParticipantPopup = ({ participant, cameraRef, brandColor, onClose }) => {
+  if (!participant) return null;
+  const isSpeaking = useIsSpeaking(participant);
+  const micMuted = useIsMuted(Track.Source.Microphone, { participant });
+  const info = getInfo(participant);
+  const camOn = !!cameraRef && !cameraRef.publication?.isMuted;
+
+  return (
+    <div
+      className="fixed inset-0 z-[95] flex items-center justify-center bg-black/75 backdrop-blur-md p-4 sm:p-10"
+      onClick={onClose}
+    >
+      <div
+        className="relative max-w-5xl w-full aspect-video rounded-2xl overflow-hidden bg-[#1a1a24] shadow-2xl"
+        style={isSpeaking ? { boxShadow: `0 0 0 3px ${brandColor}` } : undefined}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          onClick={onClose}
+          className="absolute top-2 right-2 z-10 w-9 h-9 rounded-full bg-black/60 hover:bg-black/80 flex items-center justify-center text-white transition"
+          aria-label="Close"
+        >
+          <FaTimes />
+        </button>
+
+        {camOn ? (
+          <VideoTrack
+            trackRef={cameraRef}
+            className="w-full h-full object-contain"
+            style={
+              participant.isLocal ? { transform: 'scaleX(-1)' } : undefined
+            }
+          />
+        ) : (
+          <div className="w-full h-full flex flex-col items-center justify-center gap-3">
+            <Avatar info={info} size={140} brandColor={brandColor} />
+            <p className="text-xl font-semibold">
+              {info.name}
+              {participant.isLocal ? ' (You)' : ''}
+            </p>
+          </div>
+        )}
+
+        <div className="absolute bottom-3 left-3 flex items-center gap-2 bg-black/60 backdrop-blur-sm rounded-lg px-3 py-1.5 text-sm">
+          {micMuted && <FaMicrophoneSlash className="text-red-400" />}
+          <span>{participant.isLocal ? 'You' : info.name}</span>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const PipBubble = ({ participant, cameraRef, brandColor }) => {
   const isSpeaking = useIsSpeaking(participant);
   const micMuted = useIsMuted(Track.Source.Microphone, { participant });
@@ -592,7 +715,9 @@ const PipBubble = ({ participant, cameraRef, brandColor }) => {
     <div
       className="absolute top-3 right-3 z-10 w-24 h-24 sm:w-32 sm:h-32 rounded-full overflow-hidden bg-[#1a1a24] shadow-2xl"
       style={{
-        border: `3px solid ${isSpeaking ? brandColor : 'rgba(255,255,255,0.25)'}`,
+        border: `3px solid ${
+          isSpeaking ? brandColor : 'rgba(255,255,255,0.25)'
+        }`,
       }}
     >
       {camOn ? (
@@ -616,7 +741,7 @@ const PipBubble = ({ participant, cameraRef, brandColor }) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// Invite by username modal
+// Invite modal (unchanged)
 // ─────────────────────────────────────────────────────────────────────
 const InviteByUsernameModal = ({ isOpen, onClose, brandColor, onInvite }) => {
   const [text, setText] = useState('');
@@ -709,12 +834,11 @@ const InviteByUsernameModal = ({ isOpen, onClose, brandColor, onInvite }) => {
 };
 
 // ═════════════════════════════════════════════════════════════════════
-// AI + meeting UI
+// Overlay UI
 // ═════════════════════════════════════════════════════════════════════
 const FloatingReactions = ({ reactions }) => (
   <div className="pointer-events-none fixed inset-0 z-[60] overflow-hidden">
     {reactions.map((r) => {
-      // stable position per reaction (Math.random in render made them jump)
       const seed = parseInt(String(r._id).slice(0, 4), 36) || 0;
       return (
         <div
@@ -812,7 +936,6 @@ const DataSaverMenu = ({ open, onClose, dataSaver, onChange }) => {
   );
 };
 
-/** Audio output (loudspeaker / earpiece / headset) picker. */
 const SpeakerMenu = ({
   open,
   onClose,
@@ -899,11 +1022,9 @@ const MoreMenu = ({ open, onClose, brandColor, items }) => (
 );
 
 // ─────────────────────────────────────────────────────────────────────
-// AI Panel
+// AI Panel content (shared between overlay + sidebar)
 // ─────────────────────────────────────────────────────────────────────
-const AIPanel = ({
-  open,
-  onClose,
+const AIPanelContent = ({
   tab,
   setTab,
   brandColor,
@@ -912,7 +1033,6 @@ const AIPanel = ({
   transcript,
   liveSummary,
   exchanges,
-  chatMessages,
   noteReady,
   askText,
   setAskText,
@@ -922,326 +1042,371 @@ const AIPanel = ({
   onAskVoiceStop,
   voiceRecording,
   askingVoice,
-  chatText,
-  setChatText,
-  onSendChat,
-  meId,
   onOpenNote,
+  onClose,
 }) => {
-  if (!open) return null;
-
   const tabs = [
     { id: 'summary', label: 'Summary', icon: <FaBrain /> },
     { id: 'transcript', label: 'Transcript', icon: <FaCommentDots /> },
     { id: 'ask', label: 'Ask AI', icon: <FaQuestionCircle /> },
-    { id: 'chat', label: 'Chat', icon: <FaLightbulb /> },
   ];
 
   return (
-    <div className="fixed inset-0 z-[70] flex sm:items-stretch sm:justify-end">
-      <div className="flex-1 bg-black/40" onClick={onClose} />
-
-      <div className="w-full sm:w-[420px] h-[85dvh] sm:h-full bg-[#0f0f15] border-l border-white/10 flex flex-col sm:rounded-none rounded-t-2xl shadow-2xl overflow-hidden">
-        <div
-          className="flex items-center justify-between px-4 py-3 border-b border-white/10 flex-shrink-0"
-          style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top, 0px))' }}
-        >
-          <div className="flex items-center gap-2">
-            <FaRobot style={{ color: brandColor }} />
-            <h3 className="text-base font-semibold">Xircle AI</h3>
-            <span
-              className={`text-[10px] px-2 py-0.5 rounded-md ${
-                aiEnabled
-                  ? 'bg-green-500/20 text-green-400'
-                  : 'bg-gray-500/20 text-gray-400'
-              }`}
-            >
-              {aiEnabled ? 'LIVE' : 'OFF'}
-            </span>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 text-gray-400 hover:text-white rounded-lg"
+    <>
+      <div
+        className="flex items-center justify-between px-4 py-3 border-b border-white/10 flex-shrink-0"
+        style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top, 0px))' }}
+      >
+        <div className="flex items-center gap-2">
+          <FaRobot style={{ color: brandColor }} />
+          <h3 className="text-base font-semibold">Xircle AI</h3>
+          <span
+            className={`text-[10px] px-2 py-0.5 rounded-md ${
+              aiEnabled
+                ? 'bg-green-500/20 text-green-400'
+                : 'bg-gray-500/20 text-gray-400'
+            }`}
           >
-            <FaTimes />
+            {aiEnabled ? 'LIVE' : 'OFF'}
+          </span>
+        </div>
+        <button
+          onClick={onClose}
+          className="p-1.5 text-gray-400 hover:text-white rounded-lg"
+          aria-label="Close panel"
+        >
+          <FaTimes />
+        </button>
+      </div>
+
+      <div className="flex border-b border-white/10 flex-shrink-0">
+        {tabs.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={`flex-1 py-2.5 text-xs font-medium flex flex-col items-center gap-1 transition ${
+              tab === t.id
+                ? 'text-white'
+                : 'text-gray-400 hover:text-gray-200'
+            }`}
+            style={
+              tab === t.id
+                ? { borderBottom: `2px solid ${brandColor}` }
+                : { borderBottom: '2px solid transparent' }
+            }
+          >
+            {t.icon}
+            <span>{t.label}</span>
           </button>
-        </div>
+        ))}
+      </div>
 
-        <div className="flex border-b border-white/10 flex-shrink-0">
-          {tabs.map((t) => (
+      <div className="flex-1 overflow-y-auto px-4 py-3">
+        {tab === 'summary' && (
+          <div className="space-y-4">
+            {!aiEnabled && (
+              <div className="text-sm text-gray-400">
+                Turn on AI to start recording notes.
+              </div>
+            )}
+            {aiEnabled && !liveSummary && (
+              <div className="text-sm text-gray-400 flex items-center gap-2">
+                <FaSpinner className="animate-spin" /> Listening for context…
+              </div>
+            )}
+            {liveSummary && (
+              <>
+                {liveSummary.text && (
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-gray-400 mb-1">
+                      Live summary
+                    </p>
+                    <p className="text-sm text-gray-200 whitespace-pre-wrap">
+                      {liveSummary.text}
+                    </p>
+                  </div>
+                )}
+                {liveSummary.keyPoints?.length > 0 && (
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-gray-400 mb-1">
+                      Key points
+                    </p>
+                    <ul className="text-sm text-gray-200 list-disc pl-5 space-y-1">
+                      {liveSummary.keyPoints.map((k, i) => (
+                        <li key={i}>{k}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {liveSummary.actionItems?.length > 0 && (
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-gray-400 mb-1">
+                      Action items
+                    </p>
+                    <ul className="text-sm text-gray-200 space-y-1">
+                      {liveSummary.actionItems.map((a, i) => (
+                        <li key={i} className="flex gap-2">
+                          <span style={{ color: brandColor }}>•</span>
+                          <span>
+                            {a.text}
+                            {a.assignee && (
+                              <span className="text-gray-400">
+                                {' '}
+                                — {a.assignee}
+                              </span>
+                            )}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </>
+            )}
+            {noteReady?.noteId && (
+              <button
+                onClick={onOpenNote}
+                className="w-full py-2.5 rounded-lg text-white text-sm font-medium flex items-center justify-center gap-2 transition hover:opacity-90"
+                style={{ backgroundColor: brandColor }}
+              >
+                <FaBookOpen /> Open AI notes
+              </button>
+            )}
+          </div>
+        )}
+
+        {tab === 'transcript' && (
+          <div className="space-y-2">
+            {!transcriptSupported && aiEnabled && (
+              <div className="rounded-lg bg-amber-500/10 border border-amber-500/30 px-3 py-2 text-xs text-amber-300">
+                Live transcription isn't supported in this browser.
+              </div>
+            )}
+            {!aiEnabled && (
+              <div className="text-sm text-gray-400">
+                Turn on AI to start the transcript.
+              </div>
+            )}
+            {aiEnabled && transcript.length === 0 && (
+              <div className="text-sm text-gray-400">
+                Waiting for the first words…
+              </div>
+            )}
+            {transcript.map((s, i) => (
+              <div key={i} className="text-sm">
+                <span className="font-medium" style={{ color: brandColor }}>
+                  {s.speakerName || 'Someone'}:
+                </span>{' '}
+                <span className="text-gray-200">{s.text}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {tab === 'ask' && (
+          <div className="space-y-3">
+            <p className="text-xs text-gray-400">
+              Ask anything about the call. Voice answers play aloud.
+            </p>
+            <div className="flex items-center gap-2">
+              <input
+                value={askText}
+                onChange={(e) => setAskText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    onAskText();
+                  }
+                }}
+                placeholder="What's the status on Cassia?"
+                className="flex-1 px-3 py-2.5 bg-[#0b0b10] border border-white/10 rounded-lg text-sm text-white outline-none focus:border-teal-500"
+              />
+              <button
+                onClick={onAskText}
+                disabled={askingText || !askText.trim()}
+                className="w-11 h-11 rounded-lg flex items-center justify-center disabled:opacity-60"
+                style={{ backgroundColor: brandColor }}
+              >
+                {askingText ? (
+                  <FaSpinner className="animate-spin" />
+                ) : (
+                  <FaPaperPlane />
+                )}
+              </button>
+            </div>
             <button
-              key={t.id}
-              onClick={() => setTab(t.id)}
-              className={`flex-1 py-2.5 text-xs font-medium flex flex-col items-center gap-1 transition ${
-                tab === t.id ? 'text-white' : 'text-gray-400 hover:text-gray-200'
-              }`}
-              style={
-                tab === t.id
-                  ? { borderBottom: `2px solid ${brandColor}` }
-                  : { borderBottom: '2px solid transparent' }
-              }
+              onMouseDown={onAskVoiceStart}
+              onMouseUp={onAskVoiceStop}
+              onTouchStart={onAskVoiceStart}
+              onTouchEnd={onAskVoiceStop}
+              disabled={askingVoice}
+              className={`w-full py-2.5 rounded-lg text-sm font-medium flex items-center justify-center gap-2 ${
+                voiceRecording
+                  ? 'bg-red-600 text-white'
+                  : 'bg-white/10 hover:bg-white/15 text-white'
+              } disabled:opacity-60`}
             >
-              {t.icon}
-              <span>{t.label}</span>
-            </button>
-          ))}
-        </div>
-
-        <div className="flex-1 overflow-y-auto px-4 py-3">
-          {tab === 'summary' && (
-            <div className="space-y-4">
-              {!aiEnabled && (
-                <div className="text-sm text-gray-400">
-                  Turn on AI to start recording notes.
-                </div>
-              )}
-              {aiEnabled && !liveSummary && (
-                <div className="text-sm text-gray-400 flex items-center gap-2">
-                  <FaSpinner className="animate-spin" /> Listening for context…
-                </div>
-              )}
-              {liveSummary && (
+              {askingVoice ? (
                 <>
-                  {liveSummary.text && (
-                    <div>
-                      <p className="text-xs uppercase tracking-wide text-gray-400 mb-1">
-                        Live summary
-                      </p>
-                      <p className="text-sm text-gray-200 whitespace-pre-wrap">
-                        {liveSummary.text}
-                      </p>
-                    </div>
-                  )}
-                  {liveSummary.keyPoints?.length > 0 && (
-                    <div>
-                      <p className="text-xs uppercase tracking-wide text-gray-400 mb-1">
-                        Key points
-                      </p>
-                      <ul className="text-sm text-gray-200 list-disc pl-5 space-y-1">
-                        {liveSummary.keyPoints.map((k, i) => (
-                          <li key={i}>{k}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  {liveSummary.actionItems?.length > 0 && (
-                    <div>
-                      <p className="text-xs uppercase tracking-wide text-gray-400 mb-1">
-                        Action items
-                      </p>
-                      <ul className="text-sm text-gray-200 space-y-1">
-                        {liveSummary.actionItems.map((a, i) => (
-                          <li key={i} className="flex gap-2">
-                            <span style={{ color: brandColor }}>•</span>
-                            <span>
-                              {a.text}
-                              {a.assignee && (
-                                <span className="text-gray-400">
-                                  {' '}
-                                  — {a.assignee}
-                                </span>
-                              )}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
+                  <FaSpinner className="animate-spin" /> Thinking…
+                </>
+              ) : voiceRecording ? (
+                <>
+                  <FaCircle className="text-xs animate-pulse" /> Release to ask
+                </>
+              ) : (
+                <>
+                  <FaMicrophone /> Hold to ask by voice
                 </>
               )}
-              {noteReady?.noteId && (
-                <button
-                  onClick={onOpenNote}
-                  className="w-full py-2.5 rounded-lg text-white text-sm font-medium flex items-center justify-center gap-2 transition hover:opacity-90"
-                  style={{ backgroundColor: brandColor }}
-                >
-                  <FaBookOpen /> Open AI notes
-                </button>
+            </button>
+            <div className="space-y-3 pt-2">
+              {exchanges.length === 0 && (
+                <p className="text-xs text-gray-500">
+                  Your questions and answers will appear here.
+                </p>
               )}
-            </div>
-          )}
-
-          {tab === 'transcript' && (
-            <div className="space-y-2">
-              {!transcriptSupported && aiEnabled && (
-                <div className="rounded-lg bg-amber-500/10 border border-amber-500/30 px-3 py-2 text-xs text-amber-300">
-                  Live transcription isn't supported in this browser.
-                </div>
-              )}
-              {!aiEnabled && (
-                <div className="text-sm text-gray-400">
-                  Turn on AI to start the transcript.
-                </div>
-              )}
-              {aiEnabled && transcript.length === 0 && (
-                <div className="text-sm text-gray-400">
-                  Waiting for the first words…
-                </div>
-              )}
-              {transcript.map((s, i) => (
-                <div key={i} className="text-sm">
-                  <span className="font-medium" style={{ color: brandColor }}>
-                    {s.speakerName || 'Someone'}:
-                  </span>{' '}
-                  <span className="text-gray-200">{s.text}</span>
+              {exchanges.map((x, i) => (
+                <div key={i} className="space-y-1">
+                  <p className="text-xs text-gray-400">{x.question}</p>
+                  <div
+                    className="rounded-lg px-3 py-2 text-sm text-gray-100"
+                    style={{ backgroundColor: `${brandColor}22` }}
+                  >
+                    {x.answer}
+                  </div>
                 </div>
               ))}
             </div>
-          )}
-
-          {tab === 'ask' && (
-            <div className="space-y-3">
-              <p className="text-xs text-gray-400">
-                Ask anything about the call. Voice answers play aloud.
-              </p>
-              <div className="flex items-center gap-2">
-                <input
-                  value={askText}
-                  onChange={(e) => setAskText(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      onAskText();
-                    }
-                  }}
-                  placeholder="What's the status on Cassia?"
-                  className="flex-1 px-3 py-2.5 bg-[#0b0b10] border border-white/10 rounded-lg text-sm text-white outline-none focus:border-teal-500"
-                />
-                <button
-                  onClick={onAskText}
-                  disabled={askingText || !askText.trim()}
-                  className="w-11 h-11 rounded-lg flex items-center justify-center disabled:opacity-60"
-                  style={{ backgroundColor: brandColor }}
-                >
-                  {askingText ? (
-                    <FaSpinner className="animate-spin" />
-                  ) : (
-                    <FaPaperPlane />
-                  )}
-                </button>
-              </div>
-              <button
-                onMouseDown={onAskVoiceStart}
-                onMouseUp={onAskVoiceStop}
-                onTouchStart={onAskVoiceStart}
-                onTouchEnd={onAskVoiceStop}
-                disabled={askingVoice}
-                className={`w-full py-2.5 rounded-lg text-sm font-medium flex items-center justify-center gap-2 ${
-                  voiceRecording
-                    ? 'bg-red-600 text-white'
-                    : 'bg-white/10 hover:bg-white/15 text-white'
-                } disabled:opacity-60`}
-              >
-                {askingVoice ? (
-                  <>
-                    <FaSpinner className="animate-spin" /> Thinking…
-                  </>
-                ) : voiceRecording ? (
-                  <>
-                    <FaCircle className="text-xs animate-pulse" /> Release to ask
-                  </>
-                ) : (
-                  <>
-                    <FaMicrophone /> Hold to ask by voice
-                  </>
-                )}
-              </button>
-              <div className="space-y-3 pt-2">
-                {exchanges.length === 0 && (
-                  <p className="text-xs text-gray-500">
-                    Your questions and answers will appear here.
-                  </p>
-                )}
-                {exchanges.map((x, i) => (
-                  <div key={i} className="space-y-1">
-                    <p className="text-xs text-gray-400">{x.question}</p>
-                    <div
-                      className="rounded-lg px-3 py-2 text-sm text-gray-100"
-                      style={{ backgroundColor: `${brandColor}22` }}
-                    >
-                      {x.answer}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {tab === 'chat' && (
-            <div className="space-y-3">
-              <p className="text-xs text-gray-400">
-                Send a message if your mic is noisy or your network is slow.
-              </p>
-              <div className="space-y-2">
-                {chatMessages.length === 0 && (
-                  <p className="text-xs text-gray-500">No messages yet.</p>
-                )}
-                {chatMessages.map((m, i) => {
-                  const mine = String(m.sender) === String(meId);
-                  return (
-                    <div
-                      key={i}
-                      className={`text-sm flex ${
-                        mine ? 'justify-end' : 'justify-start'
-                      }`}
-                    >
-                      <div
-                        className={`max-w-[80%] px-3 py-1.5 rounded-xl ${
-                          mine ? 'text-white' : 'bg-white/10 text-gray-100'
-                        }`}
-                        style={mine ? { backgroundColor: brandColor } : undefined}
-                      >
-                        {!mine && m.senderName && (
-                          <p className="text-[10px] text-gray-400 mb-0.5">
-                            {m.senderName}
-                          </p>
-                        )}
-                        {m.content}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {tab === 'chat' && (
-          <div
-            className="border-t border-white/10 p-3 flex items-center gap-2 flex-shrink-0"
-            style={{
-              paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom, 0px))',
-            }}
-          >
-            <input
-              value={chatText}
-              onChange={(e) => setChatText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  onSendChat();
-                }
-              }}
-              placeholder="Type a message…"
-              className="flex-1 px-3 py-2 bg-[#0b0b10] border border-white/10 rounded-lg text-sm text-white outline-none"
-            />
-            <button
-              onClick={onSendChat}
-              disabled={!chatText.trim()}
-              className="w-10 h-10 rounded-lg flex items-center justify-center disabled:opacity-60"
-              style={{ backgroundColor: brandColor }}
-            >
-              <FaPaperPlane />
-            </button>
           </div>
         )}
+      </div>
+    </>
+  );
+};
+
+const AIPanelOverlay = (props) => {
+  const { open, onClose } = props;
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-[70] flex sm:items-stretch sm:justify-end">
+      <div className="flex-1 bg-black/40" onClick={onClose} />
+      <div className="w-full sm:w-[420px] h-[85dvh] sm:h-full bg-[#0f0f15] border-l border-white/10 flex flex-col sm:rounded-none rounded-t-2xl shadow-2xl overflow-hidden">
+        <AIPanelContent {...props} />
+      </div>
+    </div>
+  );
+};
+
+const AIPanelSidebar = (props) => {
+  const { width } = props;
+  return (
+    <div
+      style={{ width }}
+      className="h-full flex flex-col bg-[#0f0f15] border-l border-white/10 flex-shrink-0 min-w-0"
+    >
+      <AIPanelContent {...props} />
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// Chat sidebar (desktop)
+// ─────────────────────────────────────────────────────────────────────
+const ChatSidebar = ({
+  messages,
+  meId,
+  brandColor,
+  chatText,
+  setChatText,
+  onSend,
+  onClose,
+}) => {
+  const endRef = useRef(null);
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [messages.length]);
+
+  return (
+    <div
+      style={{}}
+      className="h-full flex flex-col bg-[#0f0f15] border-l border-white/10"
+    >
+      <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between flex-shrink-0">
+        <h3 className="text-sm font-semibold flex items-center gap-2">
+          <FaCommentDots style={{ color: brandColor }} />
+          In-call chat
+        </h3>
+        <button
+          onClick={onClose}
+          className="p-1.5 text-gray-400 hover:text-white rounded-lg"
+          aria-label="Close chat"
+        >
+          <FaTimes />
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
+        {messages.length === 0 && (
+          <p className="text-xs text-gray-500 text-center mt-6">
+            No messages yet. Say hi 👋
+          </p>
+        )}
+        {messages.map((m, i) => {
+          const mine = String(m.sender) === String(meId);
+          return (
+            <div
+              key={i}
+              className={`text-sm flex ${mine ? 'justify-end' : 'justify-start'}`}
+            >
+              <div
+                className={`max-w-[80%] px-3 py-1.5 rounded-xl ${
+                  mine ? 'text-white' : 'bg-white/10 text-gray-100'
+                }`}
+                style={mine ? { backgroundColor: brandColor } : undefined}
+              >
+                {!mine && m.senderName && (
+                  <p className="text-[10px] text-gray-400 mb-0.5">
+                    {m.senderName}
+                  </p>
+                )}
+                {m.content}
+              </div>
+            </div>
+          );
+        })}
+        <div ref={endRef} />
+      </div>
+
+      <div className="border-t border-white/10 p-3 flex items-center gap-2 flex-shrink-0">
+        <input
+          value={chatText}
+          onChange={(e) => setChatText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              onSend();
+            }
+          }}
+          placeholder="Type a message…"
+          className="flex-1 px-3 py-2 bg-[#0b0b10] border border-white/10 rounded-lg text-sm text-white outline-none focus:border-teal-500"
+        />
+        <button
+          onClick={onSend}
+          disabled={!chatText.trim()}
+          className="w-10 h-10 rounded-lg flex items-center justify-center disabled:opacity-60"
+          style={{ backgroundColor: brandColor }}
+          aria-label="Send"
+        >
+          <FaPaperPlane />
+        </button>
       </div>
     </div>
   );
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// In-call UI (inside <LiveKitRoom>)
+// In-call stage
 // ─────────────────────────────────────────────────────────────────────
 const CallStage = ({
   isVideo,
@@ -1269,6 +1434,11 @@ const CallStage = ({
   onDataSaverChange,
   reactions,
   onSinkIdChange,
+  inCallMessages,
+  chatText,
+  setChatText,
+  onSendChat,
+  myId,
 }) => {
   const participants = useParticipants();
   const cameraTracks = useTracks([Track.Source.Camera]);
@@ -1281,9 +1451,17 @@ const CallStage = ({
     isScreenShareEnabled,
   } = useLocalParticipant();
   const room = useRoomContext();
+  const isDesktop = useIsDesktop();
 
-  const [pinned, setPinned] = useState(null);
-  const [lastSpeaker, setLastSpeaker] = useState(null);
+  const [chatOpen, setChatOpen] = useState(
+    () => typeof window !== 'undefined' && window.innerWidth >= 768
+  );
+  const [chatWidth, setChatWidth] = useState(360);
+  const [resizing, setResizing] = useState(false);
+  const resizeStartRef = useRef({ x: 0, width: 0 });
+
+  const [popped, setPopped] = useState(null);
+
   const [secs, setSecs] = useState(0);
   const [endMenuOpen, setEndMenuOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
@@ -1294,32 +1472,80 @@ const CallStage = ({
   const [currentSinkId, setCurrentSinkId] = useState('default');
   const [flipping, setFlipping] = useState(false);
 
-  // Screen share state (reactive)
+  // Auto-open chat on desktop transitions
+  const prevDesktopRef = useRef(isDesktop);
+  useEffect(() => {
+    if (isDesktop && !prevDesktopRef.current) setChatOpen(true);
+    prevDesktopRef.current = isDesktop;
+  }, [isDesktop]);
+
+  // Resize drag
+  const startResize = useCallback(
+    (e) => {
+      const clientX = e.touches?.[0]?.clientX ?? e.clientX;
+      resizeStartRef.current = { x: clientX, width: chatWidth };
+      setResizing(true);
+    },
+    [chatWidth]
+  );
+
+  useEffect(() => {
+    if (!resizing) return undefined;
+    const onMove = (e) => {
+      const clientX = e.touches?.[0]?.clientX ?? e.clientX;
+      const delta = resizeStartRef.current.x - clientX;
+      const maxW = Math.min(
+        MAX_CHAT_WIDTH,
+        (typeof window !== 'undefined' ? window.innerWidth : 1400) - 420
+      );
+      const next = Math.max(
+        MIN_CHAT_WIDTH,
+        Math.min(maxW, resizeStartRef.current.width + delta)
+      );
+      setChatWidth(next);
+    };
+    const onUp = () => setResizing(false);
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    window.addEventListener('touchmove', onMove, { passive: true });
+    window.addEventListener('touchend', onUp);
+
+    const prevUserSelect = document.body.style.userSelect;
+    const prevCursor = document.body.style.cursor;
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'col-resize';
+
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('touchmove', onMove);
+      window.removeEventListener('touchend', onUp);
+      document.body.style.userSelect = prevUserSelect;
+      document.body.style.cursor = prevCursor;
+    };
+  }, [resizing]);
+
   const localScreenShare = screenTracks.find(
     (t) => t.participant.isLocal && !t.publication?.isMuted
   );
   const remoteScreenShare = screenTracks.find(
     (t) => !t.participant.isLocal && !t.publication?.isMuted
   );
-  // A remote share always wins the main stage; your own share is shown as
-  // a "you're sharing" card (rendering it back would create a mirror tunnel).
   const activeScreen = remoteScreenShare || localScreenShare;
   const isSharingScreen = !!isScreenShareEnabled;
   const presenter = activeScreen?.participant;
 
-  // Whether `setSinkId` is available at all
   const sinkSupported =
     typeof window !== 'undefined' &&
     'setSinkId' in HTMLMediaElement.prototype;
 
-  // ── Enumerate audio output devices ──
   const refreshOutputs = useCallback(async () => {
     if (!sinkSupported || !navigator.mediaDevices?.enumerateDevices) return;
     try {
       const devices = await navigator.mediaDevices.enumerateDevices();
       const outs = devices.filter((d) => d.kind === 'audiooutput');
       setAudioOutputs(outs);
-      // Pick first as default if we haven't picked one
       if (!currentSinkId || currentSinkId === 'default') {
         const def =
           outs.find((d) => d.deviceId === 'default') || outs[0] || null;
@@ -1340,21 +1566,17 @@ const CallStage = ({
       );
   }, [refreshOutputs]);
 
-  // ── Change audio output ──
   const handleChangeOutput = useCallback(
     async (deviceId) => {
       try {
         if (room?.switchActiveDevice) {
           await room.switchActiveDevice('audiooutput', deviceId);
         } else {
-          // Fallback: set sink on rendered audio elements
           const els = document.querySelectorAll('audio');
           for (const el of els) {
             try {
               await el.setSinkId(deviceId);
-            } catch (e) {
-              /* ignore individual failures */
-            }
+            } catch {}
           }
         }
         setCurrentSinkId(deviceId);
@@ -1368,7 +1590,6 @@ const CallStage = ({
     [room, onSinkIdChange]
   );
 
-  // ── Camera flip (front/back) ──
   const flipCamera = useCallback(async () => {
     if (!localParticipant || !room || flipping) return;
     setFlipping(true);
@@ -1381,11 +1602,8 @@ const CallStage = ({
       }
       const settings = track.mediaStreamTrack?.getSettings?.() || {};
       const currentFacing = settings.facingMode;
-
-      // Preferred: restart with opposite facingMode (mobile-friendly)
       if (currentFacing) {
-        const nextFacing =
-          currentFacing === 'user' ? 'environment' : 'user';
+        const nextFacing = currentFacing === 'user' ? 'environment' : 'user';
         try {
           await track.restartTrack({ facingMode: nextFacing });
           return;
@@ -1393,8 +1611,6 @@ const CallStage = ({
           console.warn('[flip] restartTrack failed, falling back:', e);
         }
       }
-
-      // Fallback: switch to next videoinput device
       const devices = await navigator.mediaDevices.enumerateDevices();
       const cams = devices.filter((d) => d.kind === 'videoinput');
       if (cams.length <= 1) {
@@ -1412,19 +1628,15 @@ const CallStage = ({
     }
   }, [localParticipant, room, flipping]);
 
-  // ── Screen share toggle (camera is untouched, so your face stays in the bubble) ──
   const toggleScreenShare = useCallback(async () => {
     if (!localParticipant) return;
-
     if (!SCREEN_SHARE_SUPPORTED) {
       toast.info(
         'Screen sharing from a phone or the app isn’t supported yet. Use a desktop browser to share.'
       );
       return;
     }
-
     const enabling = !isSharingScreen;
-
     try {
       await localParticipant.setScreenShareEnabled(
         enabling,
@@ -1432,13 +1644,11 @@ const CallStage = ({
       );
     } catch (err) {
       console.error('[screen] failed:', err?.name, err?.message, err);
-
       const msg = String(err?.message || '');
       if (
         err?.name === 'NotAllowedError' &&
         /permission denied|cancel/i.test(msg)
       ) {
-        // user closed the picker, ignore
         return;
       }
       if (err?.name === 'NotAllowedError') {
@@ -1458,13 +1668,11 @@ const CallStage = ({
     }
   }, [localParticipant, isSharingScreen]);
 
-  // ── AI STT ──
   useLiveTranscript({
     enabled: aiEnabled && isMicrophoneEnabled && transcriptSupported,
     onFinal: onTranscriptSegment,
   });
 
-  // ── Apply data saver ──
   useEffect(() => {
     if (!localParticipant) return;
     try {
@@ -1483,13 +1691,9 @@ const CallStage = ({
     }
   }, [dataSaver, localParticipant, isCameraEnabled]);
 
-  // ── Bring the camera back after the app returns from the background ──
-  // Android stops camera capture while backgrounded (audio keeps going via
-  // the foreground service). Restart it when the user comes back.
   useEffect(() => {
     if (!localParticipant) return undefined;
     let camWasOn = false;
-
     const onVis = async () => {
       if (document.visibilityState === 'hidden') {
         camWasOn = !!localParticipant.isCameraEnabled;
@@ -1508,7 +1712,6 @@ const CallStage = ({
         console.warn('[camera] resume failed:', err);
       }
     };
-
     document.addEventListener('visibilitychange', onVis);
     return () => document.removeEventListener('visibilitychange', onVis);
   }, [localParticipant]);
@@ -1518,17 +1721,15 @@ const CallStage = ({
     return () => clearInterval(t);
   }, []);
 
+  // Close popup if participant leaves
   useEffect(() => {
-    const remote = speaking.find((p) => !p.isLocal);
-    if (remote) setLastSpeaker(remote.identity);
-  }, [speaking]);
-
-  const remotes = participants.filter((p) => !p.isLocal);
-  const mainP =
-    participants.find((p) => p.identity === pinned) ||
-    remotes.find((p) => p.identity === lastSpeaker) ||
-    remotes[0] ||
-    localParticipant;
+    if (
+      popped &&
+      !participants.find((p) => p.identity === popped.identity)
+    ) {
+      setPopped(null);
+    }
+  }, [participants, popped]);
 
   const camRefFor = (p) =>
     cameraTracks.find((t) => t.participant.identity === p.identity);
@@ -1551,14 +1752,9 @@ const CallStage = ({
 
   const showEndMenu =
     isCreator && participants.filter((p) => !p.isLocal).length > 0;
-
   const handsUpCount = raisedHands?.length || 0;
-
-  // Camera button shows in video calls, and also whenever you're sharing
-  // (so voice-call users can add their face to a screen share).
   const showCameraControls = isVideo || isSharingScreen || isCameraEnabled;
 
-  // Build More menu items
   const moreItems = [];
   if (SCREEN_SHARE_SUPPORTED) {
     moreItems.push({
@@ -1593,6 +1789,15 @@ const CallStage = ({
     active: !!dataSaver?.enabled,
     onClick: () => setDataSaverOpen(true),
   });
+  moreItems.push({
+    label: isDesktop ? (chatOpen ? 'Hide chat' : 'Show chat') : 'Chat',
+    icon: <FaCommentDots />,
+    active: isDesktop && chatOpen,
+    onClick: () => {
+      if (isDesktop) setChatOpen((v) => !v);
+      else onOpenAIPanel?.();
+    },
+  });
   if (call.meetingLink) {
     moreItems.push({
       label: 'Copy link',
@@ -1609,308 +1814,377 @@ const CallStage = ({
   }
 
   return (
-    <div className="h-dvh bg-[#0b0b10] text-white flex flex-col">
-      <style>{`
-        @keyframes call-bar-anim { 0%,100% { height: 4px } 50% { height: 16px } }
-        .call-bar { height: 4px; animation: call-bar-anim 0.8s ease-in-out infinite; }
-      `}</style>
+    <>
+      <div className="h-dvh bg-[#0b0b10] text-white flex flex-col overflow-hidden">
+        <style>{`
+          @keyframes call-bar-anim { 0%,100% { height: 4px } 50% { height: 16px } }
+          .call-bar { height: 4px; animation: call-bar-anim 0.8s ease-in-out infinite; }
+        `}</style>
 
-      <FloatingReactions reactions={reactions} />
+        <FloatingReactions reactions={reactions} />
 
-      {/* Header */}
-      <div
-        className="px-4 py-3 flex items-center justify-between border-b border-white/10 gap-2"
-        style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top, 0px))' }}
-      >
-        <div className="min-w-0 flex-1">
-          <h3 className="text-base font-semibold truncate flex items-center gap-2">
-            {call.isMeeting ? 'Meeting' : isVideo ? 'Video Call' : 'Voice Call'}
-            {aiEnabled && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-500/20 text-green-400 flex items-center gap-1">
-                <FaRobot /> AI
+        {/* Header */}
+        <div
+          className="px-3 sm:px-4 py-2.5 sm:py-3 flex items-center justify-between border-b border-white/10 gap-2 flex-shrink-0"
+          style={{ paddingTop: 'calc(0.65rem + env(safe-area-inset-top, 0px))' }}
+        >
+          <div className="min-w-0 flex-1">
+            <h3 className="text-sm sm:text-base font-semibold truncate flex items-center gap-2">
+              {call.isMeeting ? 'Meeting' : isVideo ? 'Video Call' : 'Voice Call'}
+              {aiEnabled && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-500/20 text-green-400 flex items-center gap-1">
+                  <FaRobot /> AI
+                </span>
+              )}
+              {isSharingScreen && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-teal-500/20 text-teal-300 flex items-center gap-1">
+                  <FaDesktop /> Sharing
+                </span>
+              )}
+              {handsUpCount > 0 && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 flex items-center gap-1">
+                  <FaHandPaper /> {handsUpCount}
+                </span>
+              )}
+            </h3>
+            <p className="text-[11px] sm:text-xs text-gray-400 truncate">
+              {participants.length} participant
+              {participants.length === 1 ? '' : 's'}
+              {call.isMeeting && call.meetingCode && (
+                <span className="ml-2 text-gray-500">· {call.meetingCode}</span>
+              )}
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {isDesktop && (
+              <button
+                onClick={() => setChatOpen((v) => !v)}
+                title={chatOpen ? 'Hide chat' : 'Show chat'}
+                className={`h-9 px-2.5 rounded-lg flex items-center justify-center gap-1.5 text-xs font-medium transition ${
+                  chatOpen
+                    ? 'bg-teal-600 hover:bg-teal-700'
+                    : 'bg-white/10 hover:bg-white/20'
+                }`}
+              >
+                <FaCommentDots />
+                <span className="hidden lg:inline">Chat</span>
+              </button>
+            )}
+            <button
+              onClick={aiEnabled ? onStopAI : onStartAI}
+              disabled={aiStarting}
+              title={aiEnabled ? 'Stop AI notes' : 'Start AI notes'}
+              className={`h-9 px-2.5 rounded-lg flex items-center justify-center gap-1.5 text-xs font-medium transition ${
+                aiEnabled
+                  ? 'bg-green-600 hover:bg-green-700'
+                  : 'bg-white/10 hover:bg-white/20'
+              } disabled:opacity-60`}
+            >
+              {aiStarting ? (
+                <FaSpinner className="animate-spin text-[10px]" />
+              ) : (
+                <FaRobot className="text-sm" />
+              )}
+              <span className="hidden sm:inline">
+                {aiEnabled ? 'Stop AI' : 'Start AI'}
               </span>
-            )}
-            {isSharingScreen && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-teal-500/20 text-teal-300 flex items-center gap-1">
-                <FaDesktop /> Sharing
-              </span>
-            )}
-            {handsUpCount > 0 && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 flex items-center gap-1">
-                <FaHandPaper /> {handsUpCount}
-              </span>
-            )}
-          </h3>
-          <p className="text-xs text-gray-400 truncate">
-            {participants.length} participant
-            {participants.length === 1 ? '' : 's'}
-            {call.isMeeting && call.meetingCode && (
-              <span className="ml-2 text-gray-500">· {call.meetingCode}</span>
-            )}
-          </p>
-        </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <button
-            onClick={aiEnabled ? onStopAI : onStartAI}
-            disabled={aiStarting}
-            title={aiEnabled ? 'Stop AI notes' : 'Start AI notes'}
-            className={`h-9 px-2.5 rounded-lg flex items-center justify-center gap-1.5 text-xs font-medium transition ${
-              aiEnabled
-                ? 'bg-green-600 hover:bg-green-700'
-                : 'bg-white/10 hover:bg-white/20'
-            } disabled:opacity-60`}
-          >
-            {aiStarting ? (
-              <FaSpinner className="animate-spin text-[10px]" />
-            ) : (
-              <FaRobot className="text-sm" />
-            )}
-            <span className="hidden sm:inline">
-              {aiEnabled ? 'Stop AI' : 'Start AI'}
+            </button>
+            <span className="text-sm tabular-nums text-gray-300 ml-1">
+              {formatClock(secs)}
             </span>
-          </button>
-          <span className="text-sm tabular-nums text-gray-300 ml-1">
-            {formatClock(secs)}
-          </span>
+          </div>
         </div>
-      </div>
 
-      {deviceError && (
-        <div className="mx-3 mt-3 flex items-center gap-2 rounded-lg bg-red-500/15 border border-red-500/30 px-3 py-2 text-sm text-red-300">
-          <FaExclamationTriangle className="flex-shrink-0" />
-          <span>{deviceError}</span>
-        </div>
-      )}
-
-      {/* Thumbnails */}
-      <div className="flex gap-2 overflow-x-auto px-3 py-3 flex-shrink-0">
-        {participants.map((p) => (
-          <ParticipantCard
-            key={p.identity}
-            participant={p}
-            cameraRef={camRefFor(p)}
-            variant="thumb"
-            brandColor={brandColor}
-            active={p.identity === mainP?.identity}
-            onClick={() => setPinned(p.identity)}
-          />
-        ))}
-      </div>
-
-      {/* Main tile — screen share takes priority, presenter's face in the corner */}
-      <div className="flex-1 min-h-0 px-3 pb-3">
-        {activeScreen ? (
-          <div className="relative w-full h-full rounded-2xl overflow-hidden bg-black">
-            {activeScreen.participant.isLocal ? (
-              <div className="w-full h-full flex flex-col items-center justify-center gap-4 text-center px-6">
-                <FaDesktop className="text-4xl" style={{ color: brandColor }} />
-                <div>
-                  <p className="text-lg font-semibold">
-                    You’re sharing your screen
-                  </p>
-                  <p className="text-sm text-gray-400 mt-1">
-                    Everyone in the call can see it.
-                  </p>
-                </div>
-                <button
-                  onClick={toggleScreenShare}
-                  className="px-5 py-2.5 rounded-lg bg-red-600 hover:bg-red-700 text-sm font-medium"
-                >
-                  Stop sharing
-                </button>
+        {/* Split area */}
+        <div className="flex-1 min-h-0 flex">
+          {/* LEFT: video */}
+          <div className="flex-1 min-w-0 flex flex-col relative">
+            {deviceError && (
+              <div className="mx-2 sm:mx-3 mt-2 flex items-center gap-2 rounded-lg bg-red-500/15 border border-red-500/30 px-3 py-2 text-sm text-red-300 flex-shrink-0">
+                <FaExclamationTriangle className="flex-shrink-0" />
+                <span>{deviceError}</span>
               </div>
-            ) : (
-              <VideoTrack
-                trackRef={activeScreen}
-                className="w-full h-full object-contain"
-              />
             )}
 
-            <div className="absolute bottom-2 left-2 bg-black/70 rounded-md px-2 py-1 text-xs flex items-center gap-1.5">
-              <FaDesktop className="text-[10px]" />
-              {activeScreen.participant.isLocal
-                ? 'Your screen'
-                : `${getInfo(activeScreen.participant).name}'s screen`}
+            <div className="flex-1 min-h-0 p-2 sm:p-3">
+              {activeScreen ? (
+                <div className="h-full flex flex-col gap-2">
+                  <div className="flex-1 min-h-0 relative rounded-2xl overflow-hidden bg-black">
+                    {activeScreen.participant.isLocal ? (
+                      <div className="w-full h-full flex flex-col items-center justify-center gap-4 text-center px-6">
+                        <FaDesktop
+                          className="text-4xl"
+                          style={{ color: brandColor }}
+                        />
+                        <div>
+                          <p className="text-lg font-semibold">
+                            You’re sharing your screen
+                          </p>
+                          <p className="text-sm text-gray-400 mt-1">
+                            Everyone in the call can see it.
+                          </p>
+                        </div>
+                        <button
+                          onClick={toggleScreenShare}
+                          className="px-5 py-2.5 rounded-lg bg-red-600 hover:bg-red-700 text-sm font-medium"
+                        >
+                          Stop sharing
+                        </button>
+                      </div>
+                    ) : (
+                      <VideoTrack
+                        trackRef={activeScreen}
+                        className="w-full h-full object-contain"
+                      />
+                    )}
+
+                    <div className="absolute bottom-2 left-2 bg-black/70 rounded-md px-2 py-1 text-xs flex items-center gap-1.5 pointer-events-none">
+                      <FaDesktop className="text-[10px]" />
+                      {activeScreen.participant.isLocal
+                        ? 'Your screen'
+                        : `${getInfo(activeScreen.participant).name}'s screen`}
+                    </div>
+
+                    {presenter && (
+                      <PipBubble
+                        participant={presenter}
+                        cameraRef={camRefFor(presenter)}
+                        brandColor={brandColor}
+                      />
+                    )}
+                  </div>
+
+                  <div className="flex gap-2 overflow-x-auto flex-shrink-0 pb-1">
+                    {participants
+                      .filter(
+                        (p) => p.identity !== activeScreen.participant.identity
+                      )
+                      .map((p) => (
+                        <div
+                          key={p.identity}
+                          className="w-24 h-16 sm:w-32 sm:h-20 flex-shrink-0"
+                        >
+                          <GridTile
+                            participant={p}
+                            cameraRef={camRefFor(p)}
+                            brandColor={brandColor}
+                            onClick={() => setPopped(p)}
+                          />
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              ) : (
+                <VideoGrid
+                  participants={participants}
+                  camRefFor={camRefFor}
+                  brandColor={brandColor}
+                  onSelect={(p) => setPopped(p)}
+                  isDesktop={isDesktop}
+                />
+              )}
             </div>
 
-            {presenter && (
-              <PipBubble
-                participant={presenter}
-                cameraRef={camRefFor(presenter)}
-                brandColor={brandColor}
+            <RoomAudioRenderer />
+            <StartAudio
+              label="Tap to enable audio"
+              className="fixed top-24 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-lg bg-white text-gray-900 font-medium shadow-lg"
+            />
+
+            {/* Floating AI button (inside video column) */}
+            <button
+              onClick={onOpenAIPanel}
+              className="absolute bottom-20 right-3 z-[65] w-12 h-12 rounded-xl flex items-center justify-center shadow-xl transition active:scale-95"
+              style={{ backgroundColor: brandColor }}
+              title="Open AI panel"
+            >
+              <FaRobot className="text-lg" />
+              {transcriptCount > 0 && (
+                <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-bold rounded-md min-w-[18px] h-[18px] px-1 flex items-center justify-center">
+                  {transcriptCount > 99 ? '99+' : transcriptCount}
+                </span>
+              )}
+            </button>
+
+            {/* Controls */}
+            <div
+              className="px-2 sm:px-3 py-2.5 sm:py-3 bg-white/5 border-t border-white/10 flex items-center justify-center gap-1.5 sm:gap-2 flex-shrink-0"
+              style={{
+                paddingBottom: 'calc(0.65rem + env(safe-area-inset-bottom, 0px))',
+              }}
+            >
+              <CtrlBtn
+                onClick={toggleMic}
+                label={isMicrophoneEnabled ? 'Mute' : 'Unmute'}
+                tone={isMicrophoneEnabled ? 'neutral' : 'danger'}
+              >
+                {isMicrophoneEnabled ? (
+                  <FaMicrophone className="text-lg" />
+                ) : (
+                  <FaMicrophoneSlash className="text-lg" />
+                )}
+              </CtrlBtn>
+
+              {showCameraControls && (
+                <CtrlBtn
+                  onClick={toggleCam}
+                  label={isCameraEnabled ? 'Turn camera off' : 'Turn camera on'}
+                  tone={isCameraEnabled ? 'neutral' : 'danger'}
+                >
+                  {isCameraEnabled ? (
+                    <FaVideo className="text-lg" />
+                  ) : (
+                    <FaVideoSlash className="text-lg" />
+                  )}
+                </CtrlBtn>
+              )}
+
+              {showCameraControls && isCameraEnabled && IS_TOUCH_DEVICE && (
+                <CtrlBtn
+                  onClick={flipCamera}
+                  label="Switch camera"
+                  tone="neutral"
+                  className={flipping ? 'opacity-60' : ''}
+                >
+                  {flipping ? (
+                    <FaSpinner className="animate-spin text-lg" />
+                  ) : (
+                    <FaSyncAlt className="text-lg" />
+                  )}
+                </CtrlBtn>
+              )}
+
+              {SCREEN_SHARE_SUPPORTED && (
+                <CtrlBtn
+                  onClick={toggleScreenShare}
+                  label={isSharingScreen ? 'Stop sharing' : 'Share screen'}
+                  tone={isSharingScreen ? 'active' : 'neutral'}
+                >
+                  <FaDesktop className="text-lg" />
+                </CtrlBtn>
+              )}
+
+              <CtrlBtn onClick={() => setMoreOpen(true)} label="More options">
+                <FaEllipsisH className="text-lg" />
+              </CtrlBtn>
+
+              <button
+                onClick={() =>
+                  showEndMenu ? setEndMenuOpen((v) => !v) : onHangUp()
+                }
+                onContextMenu={(e) => {
+                  if (showEndMenu) {
+                    e.preventDefault();
+                    setEndMenuOpen(true);
+                  }
+                }}
+                className="h-11 sm:h-12 px-3 sm:px-5 ml-1 rounded-xl bg-red-600 hover:bg-red-700 flex items-center justify-center gap-2 transition text-white font-medium shadow-md"
+                aria-label="Leave call"
+              >
+                <FaPhoneSlash className="text-lg" />
+                <span className="hidden sm:inline text-sm">Leave</span>
+              </button>
+            </div>
+          </div>
+
+          {/* RIGHT: chat sidebar (desktop) */}
+          {isDesktop && chatOpen && (
+            <>
+              <div
+                onMouseDown={startResize}
+                onTouchStart={startResize}
+                className={`w-1.5 cursor-col-resize flex-shrink-0 transition-colors ${
+                  resizing ? 'bg-teal-500' : 'bg-white/5 hover:bg-teal-500/60'
+                }`}
+                style={{ touchAction: 'none' }}
               />
-            )}
-          </div>
-        ) : mainP ? (
-          <ParticipantCard
-            participant={mainP}
-            cameraRef={camRefFor(mainP)}
-            variant="main"
-            brandColor={brandColor}
-          />
-        ) : null}
-      </div>
-
-      <RoomAudioRenderer />
-      <StartAudio
-        label="Tap to enable audio"
-        className="fixed top-24 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-lg bg-white text-gray-900 font-medium shadow-lg"
-      />
-
-      {/* Floating AI button */}
-      <button
-        onClick={onOpenAIPanel}
-        className="fixed bottom-24 right-3 z-[65] w-12 h-12 rounded-xl flex items-center justify-center shadow-xl transition active:scale-95"
-        style={{ backgroundColor: brandColor }}
-        title="Open AI panel"
-      >
-        <FaRobot className="text-lg" />
-        {transcriptCount > 0 && (
-          <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-bold rounded-md min-w-[18px] h-[18px] px-1 flex items-center justify-center">
-            {transcriptCount > 99 ? '99+' : transcriptCount}
-          </span>
-        )}
-      </button>
-
-      {/* Primary control bar */}
-      <div
-        className="px-3 py-3 bg-white/5 border-t border-white/10 flex items-center justify-center gap-1.5 sm:gap-2"
-        style={{
-          paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom, 0px))',
-        }}
-      >
-        <CtrlBtn
-          onClick={toggleMic}
-          label={isMicrophoneEnabled ? 'Mute' : 'Unmute'}
-          tone={isMicrophoneEnabled ? 'neutral' : 'danger'}
-        >
-          {isMicrophoneEnabled ? (
-            <FaMicrophone className="text-lg" />
-          ) : (
-            <FaMicrophoneSlash className="text-lg" />
+              <div style={{ width: chatWidth }} className="flex-shrink-0 min-w-0">
+                <ChatSidebar
+                  messages={inCallMessages || []}
+                  meId={myId}
+                  brandColor={brandColor}
+                  chatText={chatText}
+                  setChatText={setChatText}
+                  onSend={onSendChat}
+                  onClose={() => setChatOpen(false)}
+                />
+              </div>
+            </>
           )}
-        </CtrlBtn>
+        </div>
 
-        {showCameraControls && (
-          <CtrlBtn
-            onClick={toggleCam}
-            label={isCameraEnabled ? 'Turn camera off' : 'Turn camera on'}
-            tone={isCameraEnabled ? 'neutral' : 'danger'}
-          >
-            {isCameraEnabled ? (
-              <FaVideo className="text-lg" />
-            ) : (
-              <FaVideoSlash className="text-lg" />
-            )}
-          </CtrlBtn>
+        {/* Overlays */}
+        <MoreMenu
+          open={moreOpen}
+          onClose={() => setMoreOpen(false)}
+          brandColor={brandColor}
+          items={moreItems}
+        />
+
+        <ReactionPicker
+          open={reactionPickerOpen}
+          onClose={() => setReactionPickerOpen(false)}
+          onPick={onReact}
+        />
+
+        <DataSaverMenu
+          open={dataSaverOpen}
+          onClose={() => setDataSaverOpen(false)}
+          dataSaver={dataSaver}
+          onChange={onDataSaverChange}
+        />
+
+        <SpeakerMenu
+          open={speakerOpen}
+          onClose={() => setSpeakerOpen(false)}
+          outputs={audioOutputs}
+          currentId={currentSinkId}
+          onSelect={handleChangeOutput}
+          supported={sinkSupported}
+        />
+
+        {/* End-for-everyone dropdown */}
+        {endMenuOpen && showEndMenu && (
+          <>
+            <div
+              className="fixed inset-0 z-[75]"
+              onClick={() => setEndMenuOpen(false)}
+            />
+            <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[80] bg-[#1a1a24] border border-white/10 rounded-xl shadow-2xl overflow-hidden w-56">
+              <button
+                onClick={() => {
+                  setEndMenuOpen(false);
+                  onHangUp();
+                }}
+                className="w-full text-left px-4 py-3 text-sm text-gray-200 hover:bg-white/5 flex items-center gap-2"
+              >
+                <FaSignOutAlt className="text-xs" /> Leave only
+              </button>
+              <button
+                onClick={() => {
+                  setEndMenuOpen(false);
+                  onEndForAll();
+                }}
+                className="w-full text-left px-4 py-3 text-sm text-red-400 hover:bg-red-500/10 flex items-center gap-2 border-t border-white/5"
+              >
+                <FaPhoneSlash className="text-xs" /> End for everyone
+              </button>
+            </div>
+          </>
         )}
-
-        {/* Flip front/back camera — mobile only, camera on */}
-        {showCameraControls && isCameraEnabled && IS_TOUCH_DEVICE && (
-          <CtrlBtn
-            onClick={flipCamera}
-            label="Switch camera"
-            tone="neutral"
-            className={flipping ? 'opacity-60' : ''}
-          >
-            {flipping ? (
-              <FaSpinner className="animate-spin text-lg" />
-            ) : (
-              <FaSyncAlt className="text-lg" />
-            )}
-          </CtrlBtn>
-        )}
-
-        {SCREEN_SHARE_SUPPORTED && (
-          <CtrlBtn
-            onClick={toggleScreenShare}
-            label={isSharingScreen ? 'Stop sharing' : 'Share screen'}
-            tone={isSharingScreen ? 'active' : 'neutral'}
-          >
-            <FaDesktop className="text-lg" />
-          </CtrlBtn>
-        )}
-
-        <CtrlBtn onClick={() => setMoreOpen(true)} label="More options">
-          <FaEllipsisH className="text-lg" />
-        </CtrlBtn>
-
-        <button
-          onClick={() => (showEndMenu ? setEndMenuOpen((v) => !v) : onHangUp())}
-          onContextMenu={(e) => {
-            if (showEndMenu) {
-              e.preventDefault();
-              setEndMenuOpen(true);
-            }
-          }}
-          className="h-11 sm:h-12 px-3 sm:px-5 ml-1 rounded-xl bg-red-600 hover:bg-red-700 flex items-center justify-center gap-2 transition text-white font-medium shadow-md"
-          aria-label="Leave call"
-        >
-          <FaPhoneSlash className="text-lg" />
-          <span className="hidden sm:inline text-sm">Leave</span>
-        </button>
       </div>
 
-      {/* Overlays */}
-      <MoreMenu
-        open={moreOpen}
-        onClose={() => setMoreOpen(false)}
-        brandColor={brandColor}
-        items={moreItems}
-      />
-
-      <ReactionPicker
-        open={reactionPickerOpen}
-        onClose={() => setReactionPickerOpen(false)}
-        onPick={onReact}
-      />
-
-      <DataSaverMenu
-        open={dataSaverOpen}
-        onClose={() => setDataSaverOpen(false)}
-        dataSaver={dataSaver}
-        onChange={onDataSaverChange}
-      />
-
-      <SpeakerMenu
-        open={speakerOpen}
-        onClose={() => setSpeakerOpen(false)}
-        outputs={audioOutputs}
-        currentId={currentSinkId}
-        onSelect={handleChangeOutput}
-        supported={sinkSupported}
-      />
-
-      {/* End-for-everyone dropdown */}
-      {endMenuOpen && showEndMenu && (
-        <>
-          <div
-            className="fixed inset-0 z-[75]"
-            onClick={() => setEndMenuOpen(false)}
-          />
-          <div className="absolute bottom-24 left-1/2 -translate-x-1/2 z-[80] bg-[#1a1a24] border border-white/10 rounded-xl shadow-2xl overflow-hidden w-56">
-            <button
-              onClick={() => {
-                setEndMenuOpen(false);
-                onHangUp();
-              }}
-              className="w-full text-left px-4 py-3 text-sm text-gray-200 hover:bg-white/5 flex items-center gap-2"
-            >
-              <FaSignOutAlt className="text-xs" /> Leave only
-            </button>
-            <button
-              onClick={() => {
-                setEndMenuOpen(false);
-                onEndForAll();
-              }}
-              className="w-full text-left px-4 py-3 text-sm text-red-400 hover:bg-red-500/10 flex items-center gap-2 border-t border-white/5"
-            >
-              <FaPhoneSlash className="text-xs" /> End for everyone
-            </button>
-          </div>
-        </>
+      {/* Participant popup */}
+      {popped && (
+        <ParticipantPopup
+          participant={popped}
+          cameraRef={camRefFor(popped)}
+          brandColor={brandColor}
+          onClose={() => setPopped(null)}
+        />
       )}
-    </div>
+    </>
   );
 };
 
@@ -2013,7 +2287,6 @@ const WorkspaceCallScreen = () => {
   const wantsVideo = call?.type === 'video';
   const aiEnabled = !!call?.ai?.enabled;
 
-  // ── Keep the call alive when the app is backgrounded ──
   const callIsLive = phase === 'in-call' && !!tokenData && !connectionLost;
   useBackgroundCall(callIsLive);
   useMinimizeOnBack(callIsLive);
@@ -2472,6 +2745,7 @@ const WorkspaceCallScreen = () => {
     }
   }, [noteReady, workspaceId, call?.workspace, navigate]);
 
+  // Early returns
   if (!callId) {
     return (
       <FullScreen>
@@ -2771,10 +3045,15 @@ const WorkspaceCallScreen = () => {
             dataSaver={dataSaver}
             onDataSaverChange={handleDataSaverChange}
             reactions={reactions}
+            inCallMessages={inCallMessages}
+            chatText={chatText}
+            setChatText={setChatText}
+            onSendChat={handleSendChat}
+            myId={myId}
           />
         </LiveKitRoom>
 
-        <AIPanel
+        <AIPanelOverlay
           open={aiPanelOpen}
           onClose={() => setAiPanelOpen(false)}
           tab={aiTab}
@@ -2788,7 +3067,6 @@ const WorkspaceCallScreen = () => {
           transcript={transcript}
           liveSummary={liveSummary}
           exchanges={aiExchanges}
-          chatMessages={inCallMessages}
           noteReady={noteReady}
           askText={askText}
           setAskText={setAskText}
@@ -2798,10 +3076,6 @@ const WorkspaceCallScreen = () => {
           onAskVoiceStop={handleAskVoiceStop}
           voiceRecording={voiceRec.recording}
           askingVoice={askingVoice}
-          chatText={chatText}
-          setChatText={setChatText}
-          onSendChat={handleSendChat}
-          meId={myId}
           onOpenNote={handleOpenNote}
         />
 
