@@ -9,6 +9,7 @@ import React, {
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { toast } from 'react-toastify';
+import { Capacitor } from '@capacitor/core';
 import {
   LiveKitRoom,
   RoomAudioRenderer,
@@ -94,6 +95,8 @@ const ROOM_OPTIONS = {
   },
 };
 
+const IS_NATIVE = Capacitor.isNativePlatform();
+
 // ─────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────
@@ -138,6 +141,123 @@ const IS_TOUCH_DEVICE =
   /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
     navigator.userAgent
   );
+
+const SCREEN_SHARE_SUPPORTED =
+  typeof navigator !== 'undefined' &&
+  !!navigator.mediaDevices &&
+  typeof navigator.mediaDevices.getDisplayMedia === 'function' &&
+  !IS_NATIVE;
+
+// ─────────────────────────────────────────────────────────────────────
+// Keep-alive hooks (call keeps running when the user leaves the app)
+// ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Android (Capacitor): starts a foreground service with the microphone
+ * type so the OS keeps the process + mic alive while the app is in the
+ * background. Shows a persistent "call in progress" notification.
+ */
+const useBackgroundCall = (active) => {
+  useEffect(() => {
+    if (!active || !IS_NATIVE) return undefined;
+
+    let cancelled = false;
+    let BackgroundMode = null;
+
+    (async () => {
+      try {
+        const mod = await import('@anuradev/capacitor-background-mode');
+        if (cancelled) return;
+        BackgroundMode = mod.BackgroundMode;
+
+        await BackgroundMode.requestNotificationsPermission?.();
+        await BackgroundMode.requestMicrophonePermission?.();
+        if (cancelled) return;
+
+        await BackgroundMode.enable({
+          title: 'Xircle call in progress',
+          text: 'Tap to return to your call',
+          allowMicrophoneInBackground: true,
+        });
+      } catch (err) {
+        console.warn('[background] enable failed:', err);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      try {
+        BackgroundMode?.disable?.()?.catch?.(() => {});
+      } catch {}
+    };
+  }, [active]);
+};
+
+/** Android back button minimizes the app (call keeps running) instead of leaving the screen. */
+const useMinimizeOnBack = (active) => {
+  useEffect(() => {
+    if (!active || !IS_NATIVE) return undefined;
+
+    let cancelled = false;
+    let handle = null;
+
+    (async () => {
+      try {
+        const { App } = await import('@capacitor/app');
+        const h = await App.addListener('backButton', () => {
+          App.minimizeApp?.();
+        });
+        if (cancelled) {
+          h.remove();
+        } else {
+          handle = h;
+        }
+      } catch (err) {
+        console.warn('[back] listener failed:', err);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      try {
+        handle?.remove?.();
+      } catch {}
+    };
+  }, [active]);
+};
+
+/** Keep the screen awake while in a call (re-acquired after returning to the app). */
+const useWakeLock = (active) => {
+  useEffect(() => {
+    if (!active || typeof navigator === 'undefined' || !navigator.wakeLock) {
+      return undefined;
+    }
+    let lock = null;
+    let released = false;
+
+    const acquire = async () => {
+      try {
+        lock = await navigator.wakeLock.request('screen');
+      } catch {
+        /* not allowed right now */
+      }
+    };
+    acquire();
+
+    const onVis = () => {
+      if (document.visibilityState === 'visible' && !released) acquire();
+    };
+    document.addEventListener('visibilitychange', onVis);
+
+    return () => {
+      released = true;
+      document.removeEventListener('visibilitychange', onVis);
+      try {
+        lock?.release?.().catch(() => {});
+      } catch {}
+    };
+  }, [active]);
+};
 
 // ─────────────────────────────────────────────────────────────────────
 // AI helpers — audio playback, voice recorder, live transcript
@@ -466,24 +586,65 @@ const ParticipantCard = ({
   );
 };
 
+/**
+ * Round camera bubble pinned top-right over a shared screen.
+ * Shows the presenter's face (or avatar if their camera is off).
+ */
+const PipBubble = ({ participant, cameraRef, brandColor = BRAND }) => {
+  const isSpeaking = useIsSpeaking(participant);
+  const micMuted = useIsMuted(Track.Source.Microphone, { participant });
+  const info = getInfo(participant);
+  const camOn = !!cameraRef && !cameraRef.publication?.isMuted;
+
+  return (
+    <div
+      className="absolute top-3 right-3 z-10 w-24 h-24 sm:w-32 sm:h-32 rounded-full overflow-hidden bg-[#1a1a24] shadow-2xl"
+      style={{
+        border: `3px solid ${isSpeaking ? brandColor : 'rgba(255,255,255,0.25)'}`,
+      }}
+    >
+      {camOn ? (
+        <VideoTrack
+          trackRef={cameraRef}
+          className="w-full h-full object-cover"
+          style={participant.isLocal ? { transform: 'scaleX(-1)' } : undefined}
+        />
+      ) : (
+        <div className="w-full h-full flex items-center justify-center">
+          <Avatar info={info} size={56} brandColor={brandColor} />
+        </div>
+      )}
+      {micMuted && (
+        <div className="absolute bottom-1 left-1/2 -translate-x-1/2 bg-black/70 rounded-full p-1">
+          <FaMicrophoneSlash className="text-red-400 text-[10px]" />
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ═════════════════════════════════════════════════════════════════════
 // AI + meeting UI
 // ═════════════════════════════════════════════════════════════════════
 const FloatingReactions = ({ reactions }) => (
   <div className="pointer-events-none fixed inset-0 z-[60] overflow-hidden">
-    {reactions.map((r) => (
-      <div
-        key={r._id}
-        className="absolute text-4xl"
-        style={{
-          left: `${10 + Math.random() * 80}%`,
-          bottom: '15%',
-          animation: 'float-up 3s ease-out forwards',
-        }}
-      >
-        {r.emoji}
-      </div>
-    ))}
+    {reactions.map((r) => {
+      // stable position per reaction (Math.random in render made them jump)
+      const seed = parseInt(String(r._id).slice(0, 4), 36) || 0;
+      return (
+        <div
+          key={r._id}
+          className="absolute text-4xl"
+          style={{
+            left: `${10 + (seed % 80)}%`,
+            bottom: '15%',
+            animation: 'float-up 3s ease-out forwards',
+          }}
+        >
+          {r.emoji}
+        </div>
+      );
+    })}
     <style>{`
       @keyframes float-up {
         0%   { transform: translateY(0)    scale(1);   opacity: 1; }
@@ -1031,8 +1192,12 @@ const CallStage = ({
   const cameraTracks = useTracks([Track.Source.Camera]);
   const screenTracks = useTracks([Track.Source.ScreenShare]);
   const speaking = useSpeakingParticipants();
-  const { localParticipant, isMicrophoneEnabled, isCameraEnabled } =
-    useLocalParticipant();
+  const {
+    localParticipant,
+    isMicrophoneEnabled,
+    isCameraEnabled,
+    isScreenShareEnabled,
+  } = useLocalParticipant();
   const room = useRoomContext();
 
   const [pinned, setPinned] = useState(null);
@@ -1053,8 +1218,10 @@ const CallStage = ({
   const remoteScreenShare = screenTracks.find(
     (t) => !t.participant.isLocal && !t.publication?.isMuted
   );
+  // A remote share always wins the main stage; your own share is shown
+  // as a "you're sharing" card (rendering it would create a mirror tunnel).
   const activeScreen = remoteScreenShare || localScreenShare;
-  const isSharingScreen = !!localScreenShare;
+  const isSharingScreen = !!isScreenShareEnabled;
 
   const sinkSupported =
     typeof window !== 'undefined' &&
@@ -1155,25 +1322,48 @@ const CallStage = ({
     }
   }, [localParticipant, room, flipping]);
 
-  // ── Screen share ──
+  // ── Screen share (camera is untouched, so your face stays in the bubble) ──
   const toggleScreenShare = useCallback(async () => {
     if (!localParticipant) return;
+
+    if (!SCREEN_SHARE_SUPPORTED) {
+      toast.info(
+        'Screen sharing from a phone or the app isn’t supported yet. Use a desktop browser to share.'
+      );
+      return;
+    }
+
+    const enabling = !isSharingScreen;
+
     try {
-      await localParticipant.setScreenShareEnabled(!isSharingScreen, {
-        audio: true,
-        selfBrowserSurface: 'exclude',
-      });
+      await localParticipant.setScreenShareEnabled(
+        enabling,
+        enabling ? { audio: true } : undefined
+      );
     } catch (err) {
+      console.error('[screen] failed:', err?.name, err?.message, err);
+
+      const msg = String(err?.message || '');
+      if (
+        err?.name === 'NotAllowedError' &&
+        /permission denied|cancel/i.test(msg)
+      ) {
+        // user closed the picker, ignore
+        return;
+      }
       if (err?.name === 'NotAllowedError') {
-        // user cancelled
+        toast.error('Screen share was blocked. Check browser permissions.');
       } else if (
-        err?.name === 'NotSupportedError' ||
-        /not supported/i.test(err?.message || '')
+        /not supported|unsupported/i.test(msg) ||
+        err?.name === 'NotSupportedError'
       ) {
         toast.info('Screen sharing is not supported on this device.');
+      } else if (/permission|publish|not allowed/i.test(msg)) {
+        toast.error('You are not allowed to share your screen in this call.');
       } else {
-        console.error('[screen] failed:', err);
-        toast.error('Could not share screen.');
+        toast.error(
+          `Could not share screen: ${msg || err?.name || 'unknown error'}`
+        );
       }
     }
   }, [localParticipant, isSharingScreen]);
@@ -1202,6 +1392,36 @@ const CallStage = ({
       console.warn('[dataSaver] apply failed:', err);
     }
   }, [dataSaver, localParticipant, isCameraEnabled]);
+
+  // ── Bring the camera back after the app returns from the background ──
+  // Android stops camera capture while backgrounded (audio keeps going via
+  // the foreground service). Restart it when the user comes back.
+  useEffect(() => {
+    if (!localParticipant) return undefined;
+    let camWasOn = false;
+
+    const onVis = async () => {
+      if (document.visibilityState === 'hidden') {
+        camWasOn = !!localParticipant.isCameraEnabled;
+        return;
+      }
+      if (!camWasOn) return;
+      camWasOn = false;
+      try {
+        const pub = localParticipant.getTrackPublication(Track.Source.Camera);
+        const ms = pub?.videoTrack?.mediaStreamTrack;
+        if (!ms || ms.readyState === 'ended' || pub?.isMuted) {
+          await localParticipant.setCameraEnabled(false);
+          await localParticipant.setCameraEnabled(true);
+        }
+      } catch (err) {
+        console.warn('[camera] resume failed:', err);
+      }
+    };
+
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
+  }, [localParticipant]);
 
   useEffect(() => {
     const t = setInterval(() => setSecs((s) => s + 1), 1000);
@@ -1246,9 +1466,13 @@ const CallStage = ({
 
   const handsUpCount = raisedHands?.length || 0;
 
+  // Camera button shows in video calls, and also whenever you're sharing
+  // (so voice-call users can add their face to a screen share).
+  const showCameraControls = isVideo || isSharingScreen || isCameraEnabled;
+
   // Build More items
   const moreItems = [];
-  if (isVideo) {
+  if (SCREEN_SHARE_SUPPORTED) {
     moreItems.push({
       label: isSharingScreen ? 'Stop share' : 'Share screen',
       icon: <FaDesktop />,
@@ -1288,6 +1512,8 @@ const CallStage = ({
       onClick: onCopyLink,
     });
   }
+
+  const presenter = activeScreen?.participant;
 
   return (
     <div className="h-dvh bg-[#0b0b10] text-white flex flex-col">
@@ -1382,20 +1608,49 @@ const CallStage = ({
         ))}
       </div>
 
-      {/* Main tile — screen share takes priority */}
+      {/* Main tile — screen share takes priority, presenter's face in the corner */}
       <div className="flex-1 min-h-0 px-3 pb-3">
         {activeScreen ? (
           <div className="relative w-full h-full rounded-2xl overflow-hidden bg-black">
-            <VideoTrack
-              trackRef={activeScreen}
-              className="w-full h-full object-contain"
-            />
+            {activeScreen.participant.isLocal ? (
+              <div className="w-full h-full flex flex-col items-center justify-center gap-4 text-center px-6">
+                <FaDesktop className="text-4xl" style={{ color: brandColor }} />
+                <div>
+                  <p className="text-lg font-semibold">
+                    You’re sharing your screen
+                  </p>
+                  <p className="text-sm text-gray-400 mt-1">
+                    Everyone in the call can see it.
+                  </p>
+                </div>
+                <button
+                  onClick={toggleScreenShare}
+                  className="px-5 py-2.5 rounded-lg bg-red-600 hover:bg-red-700 text-sm font-medium"
+                >
+                  Stop sharing
+                </button>
+              </div>
+            ) : (
+              <VideoTrack
+                trackRef={activeScreen}
+                className="w-full h-full object-contain"
+              />
+            )}
+
             <div className="absolute bottom-2 left-2 bg-black/70 rounded-md px-2 py-1 text-xs flex items-center gap-1.5">
               <FaDesktop className="text-[10px]" />
               {activeScreen.participant.isLocal
                 ? 'Your screen'
                 : `${getInfo(activeScreen.participant).name}'s screen`}
             </div>
+
+            {presenter && (
+              <PipBubble
+                participant={presenter}
+                cameraRef={camRefFor(presenter)}
+                brandColor={brandColor}
+              />
+            )}
           </div>
         ) : mainP ? (
           <ParticipantCard
@@ -1447,7 +1702,7 @@ const CallStage = ({
           )}
         </CtrlBtn>
 
-        {isVideo && (
+        {showCameraControls && (
           <CtrlBtn
             onClick={toggleCam}
             label={isCameraEnabled ? 'Turn camera off' : 'Turn camera on'}
@@ -1461,7 +1716,7 @@ const CallStage = ({
           </CtrlBtn>
         )}
 
-        {isVideo && isCameraEnabled && IS_TOUCH_DEVICE && (
+        {showCameraControls && isCameraEnabled && IS_TOUCH_DEVICE && (
           <CtrlBtn
             onClick={flipCamera}
             label="Switch camera"
@@ -1473,6 +1728,16 @@ const CallStage = ({
             ) : (
               <FaSyncAlt className="text-lg" />
             )}
+          </CtrlBtn>
+        )}
+
+        {SCREEN_SHARE_SUPPORTED && (
+          <CtrlBtn
+            onClick={toggleScreenShare}
+            label={isSharingScreen ? 'Stop sharing' : 'Share screen'}
+            tone={isSharingScreen ? 'active' : 'neutral'}
+          >
+            <FaDesktop className="text-lg" />
           </CtrlBtn>
         )}
 
@@ -1665,6 +1930,12 @@ const CallScreen = () => {
 
   const canViewNote =
     !!noteReady && (noteReady.kind === 'WorkspaceNote' || isCreator);
+
+  // ── Keep the call alive when the app is backgrounded ──
+  const callIsLive = phase === 'in-call' && !!tokenData && !connectionLost;
+  useBackgroundCall(callIsLive);
+  useMinimizeOnBack(callIsLive);
+  useWakeLock(callIsLive);
 
   const goBack = useCallback(() => {
     if (location.key && location.key !== 'default') {

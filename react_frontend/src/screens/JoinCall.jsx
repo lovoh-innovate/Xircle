@@ -31,12 +31,8 @@ import {
   FaSpinner,
   FaExclamationTriangle,
   FaLink,
-  FaCheck,
-  FaCopy,
-  FaArrowLeft,
   FaLock,
-  FaUsers,
-  FaCircle,
+  FaDesktop,
   // ── AI additions ──
   FaRobot,
   FaBrain,
@@ -46,8 +42,6 @@ import {
   FaBookOpen,
   FaTimes,
   FaHandPaper,
-  FaPaperPlane,
-  FaChevronDown,
 } from 'react-icons/fa';
 
 import { useJoinByMeetingCodeMutation } from '../slices/callApiSlice';
@@ -79,6 +73,12 @@ const ROOM_OPTIONS = {
 
 const GUEST_STATE_POLL_MS = 15_000;
 
+// Phones / WebViews don't expose getDisplayMedia, so the share button is hidden there.
+const SCREEN_SHARE_SUPPORTED =
+  typeof navigator !== 'undefined' &&
+  !!navigator.mediaDevices &&
+  typeof navigator.mediaDevices.getDisplayMedia === 'function';
+
 // ─────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────
@@ -103,16 +103,6 @@ const getInfo = (p) => {
   };
 };
 
-const getInitials = (name) => {
-  if (!name) return '?';
-  return name
-    .split(' ')
-    .slice(0, 2)
-    .map((w) => w[0])
-    .join('')
-    .toUpperCase();
-};
-
 const deviceFailureMessage = (failure) => {
   switch (failure) {
     case MediaDeviceFailure.PermissionDenied:
@@ -124,6 +114,39 @@ const deviceFailureMessage = (failure) => {
     default:
       return 'Could not start your microphone or camera.';
   }
+};
+
+/** Keep the screen awake while in a call (re-acquired after returning to the tab). */
+const useWakeLock = (active) => {
+  useEffect(() => {
+    if (!active || typeof navigator === 'undefined' || !navigator.wakeLock) {
+      return undefined;
+    }
+    let lock = null;
+    let released = false;
+
+    const acquire = async () => {
+      try {
+        lock = await navigator.wakeLock.request('screen');
+      } catch {
+        /* not allowed right now */
+      }
+    };
+    acquire();
+
+    const onVis = () => {
+      if (document.visibilityState === 'visible' && !released) acquire();
+    };
+    document.addEventListener('visibilitychange', onVis);
+
+    return () => {
+      released = true;
+      document.removeEventListener('visibilitychange', onVis);
+      try {
+        lock?.release?.().catch(() => {});
+      } catch {}
+    };
+  }, [active]);
 };
 
 // ─────────────────────────────────────────────────────────────────────
@@ -144,7 +167,7 @@ const GlobalStyles = () => (
 );
 
 // ═════════════════════════════════════════════════════════════════════
-// Participant tile (shared for main + thumb) — unchanged
+// Participant tile (shared for main + thumb)
 // ═════════════════════════════════════════════════════════════════════
 const ParticipantTile = ({
   participant,
@@ -253,8 +276,54 @@ const ParticipantTile = ({
   );
 };
 
+/**
+ * Round camera bubble pinned top-right over a shared screen.
+ * Shows the presenter's face (or initial if their camera is off).
+ */
+const PipBubble = ({ participant, cameraRef }) => {
+  const isSpeaking = useIsSpeaking(participant);
+  const micMuted = useIsMuted(Track.Source.Microphone, { participant });
+  const info = getInfo(participant);
+  const camOn = !!cameraRef && !cameraRef.publication?.isMuted;
+
+  return (
+    <div
+      className="absolute top-3 right-3 z-10 w-24 h-24 sm:w-32 sm:h-32 rounded-full overflow-hidden bg-[#1a1a24] shadow-2xl"
+      style={{
+        border: `3px solid ${isSpeaking ? BRAND : 'rgba(255,255,255,0.25)'}`,
+      }}
+    >
+      {camOn ? (
+        <VideoTrack
+          trackRef={cameraRef}
+          className="w-full h-full object-cover"
+          style={participant.isLocal ? { transform: 'scaleX(-1)' } : undefined}
+        />
+      ) : info.profile ? (
+        <img
+          src={info.profile}
+          alt={info.name}
+          className="w-full h-full object-cover"
+        />
+      ) : (
+        <div
+          className="w-full h-full flex items-center justify-center font-bold text-white text-3xl"
+          style={{ backgroundColor: BRAND }}
+        >
+          {info.name.charAt(0).toUpperCase()}
+        </div>
+      )}
+      {micMuted && (
+        <div className="absolute bottom-1 left-1/2 -translate-x-1/2 bg-black/70 rounded-full p-1">
+          <FaMicrophoneSlash className="text-red-400 text-[10px]" />
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ═════════════════════════════════════════════════════════════════════
-// ── NEW: Guest AI panel (read-only) ─────────────────────────────────
+// Guest AI panel (read-only)
 // ═════════════════════════════════════════════════════════════════════
 const GuestAIPanel = ({
   open,
@@ -511,14 +580,13 @@ const GuestDataSaverMenu = ({ open, onClose, dataSaver, onChange }) => {
 };
 
 // ═════════════════════════════════════════════════════════════════════
-// Guest stage (inside LiveKit) — extended with data saver + AI button
+// Guest stage (inside LiveKit) — screen share + data saver + AI button
 // ═════════════════════════════════════════════════════════════════════
 const GuestCallStage = ({
   isVideo,
   onHangUp,
   deviceError,
   code,
-  // ── NEW ──
   aiEnabled,
   transcriptCount,
   onOpenAIPanel,
@@ -528,14 +596,68 @@ const GuestCallStage = ({
 }) => {
   const participants = useParticipants();
   const cameraTracks = useTracks([Track.Source.Camera]);
+  const screenTracks = useTracks([Track.Source.ScreenShare]);
   const speaking = useSpeakingParticipants();
-  const { localParticipant, isMicrophoneEnabled, isCameraEnabled } =
-    useLocalParticipant();
+  const {
+    localParticipant,
+    isMicrophoneEnabled,
+    isCameraEnabled,
+    isScreenShareEnabled,
+  } = useLocalParticipant();
 
   const [pinned, setPinned] = useState(null);
   const [lastSpeaker, setLastSpeaker] = useState(null);
   const [secs, setSecs] = useState(0);
   const [dataSaverOpen, setDataSaverOpen] = useState(false);
+
+  const localScreenShare = screenTracks.find(
+    (t) => t.participant.isLocal && !t.publication?.isMuted
+  );
+  const remoteScreenShare = screenTracks.find(
+    (t) => !t.participant.isLocal && !t.publication?.isMuted
+  );
+  // A remote share always takes the main stage. Your own share shows as a
+  // "you're sharing" card (rendering it back would create a mirror tunnel).
+  const activeScreen = remoteScreenShare || localScreenShare;
+  const isSharingScreen = !!isScreenShareEnabled;
+  const presenter = activeScreen?.participant;
+
+  const toggleScreenShare = useCallback(async () => {
+    if (!localParticipant) return;
+
+    if (!SCREEN_SHARE_SUPPORTED) {
+      toast.info(
+        'Screen sharing isn’t supported on this device. Use a desktop browser to share.'
+      );
+      return;
+    }
+
+    const enabling = !isSharingScreen;
+    try {
+      await localParticipant.setScreenShareEnabled(
+        enabling,
+        enabling ? { audio: true } : undefined
+      );
+    } catch (err) {
+      console.error('[guest][screen] failed:', err?.name, err?.message, err);
+      const msg = String(err?.message || '');
+      if (
+        err?.name === 'NotAllowedError' &&
+        /permission denied|cancel/i.test(msg)
+      ) {
+        return; // user closed the picker
+      }
+      if (err?.name === 'NotAllowedError') {
+        toast.error('Screen share was blocked. Check browser permissions.');
+      } else if (/permission|publish|not allowed/i.test(msg)) {
+        toast.error('You are not allowed to share your screen in this call.');
+      } else {
+        toast.error(
+          `Could not share screen: ${msg || err?.name || 'unknown error'}`
+        );
+      }
+    }
+  }, [localParticipant, isSharingScreen]);
 
   // Apply data saver to local publishing
   useEffect(() => {
@@ -555,6 +677,36 @@ const GuestCallStage = ({
       console.warn('[guest][dataSaver] apply failed:', err);
     }
   }, [dataSaver, localParticipant, isCameraEnabled]);
+
+  // Bring the camera back if the browser stopped it while the tab was hidden
+  useEffect(() => {
+    if (!localParticipant) return undefined;
+    let camWasOn = false;
+
+    const onVis = async () => {
+      if (document.visibilityState === 'hidden') {
+        camWasOn = !!localParticipant.isCameraEnabled;
+        return;
+      }
+      if (!camWasOn) return;
+      camWasOn = false;
+      try {
+        const pub = localParticipant.getTrackPublication(Track.Source.Camera);
+        const ms = pub?.videoTrack?.mediaStreamTrack;
+        if (!ms || ms.readyState === 'ended' || pub?.isMuted) {
+          await localParticipant.setCameraEnabled(false);
+          await localParticipant.setCameraEnabled(true);
+        }
+      } catch (err) {
+        console.warn('[guest][camera] resume failed:', err);
+      }
+    };
+
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
+  }, [localParticipant]);
+
+  useWakeLock(true);
 
   useEffect(() => {
     const t = setInterval(() => setSecs((s) => s + 1), 1000);
@@ -593,6 +745,7 @@ const GuestCallStage = ({
   };
 
   const handsUpCount = raisedHands?.length || 0;
+  const showCameraControls = isVideo || isSharingScreen || isCameraEnabled;
 
   return (
     <div className="h-dvh bg-[#0b0b10] text-white flex flex-col">
@@ -607,6 +760,11 @@ const GuestCallStage = ({
             {aiEnabled && (
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-500/20 text-green-400 flex items-center gap-1">
                 <FaRobot /> AI
+              </span>
+            )}
+            {isSharingScreen && (
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-teal-500/20 text-teal-300 flex items-center gap-1">
+                <FaDesktop /> Sharing
               </span>
             )}
             {handsUpCount > 0 && (
@@ -644,14 +802,57 @@ const GuestCallStage = ({
         ))}
       </div>
 
-      {/* Main tile */}
+      {/* Main stage — a shared screen takes priority, presenter's face in the corner */}
       <div className="flex-1 min-h-0 px-3 pb-3">
-        {mainP && (
-          <ParticipantTile
-            participant={mainP}
-            cameraRef={camRefFor(mainP)}
-            variant="main"
-          />
+        {activeScreen ? (
+          <div className="relative w-full h-full rounded-3xl overflow-hidden bg-black">
+            {activeScreen.participant.isLocal ? (
+              <div className="w-full h-full flex flex-col items-center justify-center gap-4 text-center px-6">
+                <FaDesktop className="text-4xl" style={{ color: BRAND }} />
+                <div>
+                  <p className="text-lg font-semibold">
+                    You’re sharing your screen
+                  </p>
+                  <p className="text-sm text-gray-400 mt-1">
+                    Everyone in the meeting can see it.
+                  </p>
+                </div>
+                <button
+                  onClick={toggleScreenShare}
+                  className="px-5 py-2.5 rounded-full bg-red-600 hover:bg-red-700 text-sm font-medium"
+                >
+                  Stop sharing
+                </button>
+              </div>
+            ) : (
+              <VideoTrack
+                trackRef={activeScreen}
+                className="w-full h-full object-contain"
+              />
+            )}
+
+            <div className="absolute bottom-2 left-2 bg-black/70 rounded-full px-3 py-1 text-xs flex items-center gap-1.5">
+              <FaDesktop className="text-[10px]" />
+              {activeScreen.participant.isLocal
+                ? 'Your screen'
+                : `${getInfo(activeScreen.participant).name}'s screen`}
+            </div>
+
+            {presenter && (
+              <PipBubble
+                participant={presenter}
+                cameraRef={camRefFor(presenter)}
+              />
+            )}
+          </div>
+        ) : (
+          mainP && (
+            <ParticipantTile
+              participant={mainP}
+              cameraRef={camRefFor(mainP)}
+              variant="main"
+            />
+          )
         )}
       </div>
 
@@ -695,7 +896,7 @@ const GuestCallStage = ({
           )}
         </button>
 
-        {isVideo && (
+        {showCameraControls && (
           <button
             onClick={toggleCam}
             className={`w-12 h-12 rounded-full flex items-center justify-center transition ${
@@ -708,6 +909,21 @@ const GuestCallStage = ({
             ) : (
               <FaVideoSlash className="text-lg" />
             )}
+          </button>
+        )}
+
+        {SCREEN_SHARE_SUPPORTED && (
+          <button
+            onClick={toggleScreenShare}
+            className={`w-12 h-12 rounded-full flex items-center justify-center transition ${
+              isSharingScreen
+                ? 'bg-teal-600 hover:bg-teal-700'
+                : 'bg-gray-600 hover:bg-gray-500'
+            }`}
+            aria-label={isSharingScreen ? 'Stop sharing' : 'Share screen'}
+            title={isSharingScreen ? 'Stop sharing' : 'Share screen'}
+          >
+            <FaDesktop className="text-lg" />
           </button>
         )}
 
@@ -745,7 +961,7 @@ const GuestCallStage = ({
 };
 
 // ═════════════════════════════════════════════════════════════════════
-// Full-screen shell — unchanged
+// Full-screen shell
 // ═════════════════════════════════════════════════════════════════════
 const Shell = ({ children }) => (
   <div
@@ -774,7 +990,7 @@ const JoinCall = () => {
   const [errorMsg, setErrorMsg] = useState('');
   const [permError, setPermError] = useState('');
   const [deviceError, setDeviceError] = useState('');
-  const [connectionLost, setConnectionLost] = useState(false);
+  const [connectionLost] = useState(false);
   const [name, setName] = useState('');
   const [guestTokenData, setGuestTokenData] = useState(null);
   const [callType, setCallType] = useState('video');
@@ -881,7 +1097,7 @@ const JoinCall = () => {
 
   // ─── Poll public state every 15s (while in-call) ──────────
   useEffect(() => {
-    if (phase !== 'in-call' || !code) return;
+    if (phase !== 'in-call' || !code) return undefined;
     let cancelled = false;
 
     const fetchState = async () => {
