@@ -4,7 +4,6 @@ import React, {
   useCallback,
   useEffect,
   useRef,
-  useMemo,
 } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useSelector } from 'react-redux';
@@ -17,7 +16,6 @@ import {
   useTracks,
   useLocalParticipant,
   useParticipants,
-  useSpeakingParticipants,
   useIsSpeaking,
   useIsMuted,
 } from '@livekit/components-react';
@@ -52,6 +50,7 @@ import {
 
 import { useJoinByMeetingCodeMutation } from '../slices/callApiSlice';
 import { ensureCallPermissions } from '../utils/callPermissions';
+import useCallAIRecorder from '../hooks/useCallAIRecorder';
 
 // ─────────────────────────────────────────────────────────────────────
 // Config
@@ -79,7 +78,9 @@ const ROOM_OPTIONS = {
   },
 };
 
-const GUEST_STATE_POLL_MS = 15_000;
+// Guests have no socket, so they poll. 6 s keeps the transcript feeling live
+// without hammering the server (payload is capped server-side).
+const GUEST_STATE_POLL_MS = 6_000;
 
 const SCREEN_SHARE_SUPPORTED =
   typeof navigator !== 'undefined' &&
@@ -120,6 +121,22 @@ const deviceFailureMessage = (failure) => {
       return 'Microphone/camera is in use by another app.';
     default:
       return 'Could not start your microphone or camera.';
+  }
+};
+
+// Human-readable text for the AI recorder state
+const recorderMessage = (status, error) => {
+  switch (status) {
+    case 'muted':
+      return 'Your microphone is muted — unmute so AI can hear you.';
+    case 'unsupported':
+      return "This device can't record audio for AI notes.";
+    case 'no-mic':
+      return 'Waiting for your microphone…';
+    case 'error':
+      return `AI audio problem: ${error || 'upload failed'}`;
+    default:
+      return 'Listening — first words appear within about 10 seconds.';
   }
 };
 
@@ -489,6 +506,8 @@ const GuestAIPanelContent = ({
   tab,
   setTab,
   aiEnabled,
+  recorderStatus,
+  recorderError,
   transcript,
   liveSummary,
   chatMessages,
@@ -500,6 +519,10 @@ const GuestAIPanelContent = ({
     { id: 'transcript', label: 'Transcript', icon: <FaCommentDots /> },
     { id: 'chat', label: 'Chat', icon: <FaLightbulb /> },
   ];
+
+  const recorderProblem =
+    aiEnabled &&
+    ['muted', 'unsupported', 'no-mic', 'error'].includes(recorderStatus);
 
   return (
     <>
@@ -529,7 +552,20 @@ const GuestAIPanelContent = ({
         </button>
       </div>
 
-      <div className="flex border-b border-white/10 flex-shrink-0">
+      {aiEnabled && (
+        <div className="mx-4 mt-3 rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-[11px] text-gray-300 flex-shrink-0">
+          AI notes are on — everyone's speech, including yours, is transcribed
+          for the meeting notes. Mute your mic to pause it for you.
+        </div>
+      )}
+
+      {recorderProblem && (
+        <div className="mx-4 mt-3 rounded-lg bg-amber-500/10 border border-amber-500/30 px-3 py-2 text-xs text-amber-300 flex-shrink-0">
+          {recorderMessage(recorderStatus, recorderError)}
+        </div>
+      )}
+
+      <div className="flex border-b border-white/10 flex-shrink-0 mt-2">
         {tabs.map((t) => (
           <button
             key={t.id}
@@ -558,7 +594,9 @@ const GuestAIPanelContent = ({
             {aiEnabled && !liveSummary && (
               <div className="text-sm text-gray-400 flex items-center gap-2">
                 <FaSpinner className="animate-spin" />
-                Listening for context…
+                {transcript.length === 0
+                  ? 'Listening for context…'
+                  : 'Building the summary — it appears after a few more sentences…'}
               </div>
             )}
             {liveSummary && (
@@ -627,8 +665,12 @@ const GuestAIPanelContent = ({
               </div>
             )}
             {aiEnabled && transcript.length === 0 && (
-              <div className="text-sm text-gray-400">
-                Waiting for the first words…
+              <div className="text-sm text-gray-400 flex items-center gap-2">
+                {recorderStatus === 'listening' ||
+                recorderStatus === 'sending' ? (
+                  <FaSpinner className="animate-spin flex-shrink-0" />
+                ) : null}
+                <span>{recorderMessage(recorderStatus, recorderError)}</span>
               </div>
             )}
             {transcript.map((s, i) => (
@@ -689,6 +731,8 @@ const GuestAIPanelOverlay = ({
   tab,
   setTab,
   aiEnabled,
+  recorderStatus,
+  recorderError,
   transcript,
   liveSummary,
   chatMessages,
@@ -703,6 +747,8 @@ const GuestAIPanelOverlay = ({
           tab={tab}
           setTab={setTab}
           aiEnabled={aiEnabled}
+          recorderStatus={recorderStatus}
+          recorderError={recorderError}
           transcript={transcript}
           liveSummary={liveSummary}
           chatMessages={chatMessages}
@@ -723,6 +769,8 @@ const GuestAISidebar = ({
   tab,
   setTab,
   aiEnabled,
+  recorderStatus,
+  recorderError,
   transcript,
   liveSummary,
   chatMessages,
@@ -736,6 +784,8 @@ const GuestAISidebar = ({
       tab={tab}
       setTab={setTab}
       aiEnabled={aiEnabled}
+      recorderStatus={recorderStatus}
+      recorderError={recorderError}
       transcript={transcript}
       liveSummary={liveSummary}
       chatMessages={chatMessages}
@@ -804,6 +854,10 @@ const GuestCallStage = ({
   deviceError,
   code,
   aiEnabled,
+  recorderStatus,
+  recorderError,
+  onUploadAudio,
+  onRecorderStatus,
   transcript,
   liveSummary,
   chatMessages,
@@ -819,12 +873,12 @@ const GuestCallStage = ({
   const participants = useParticipants();
   const cameraTracks = useTracks([Track.Source.Camera]);
   const screenTracks = useTracks([Track.Source.ScreenShare]);
-  const speaking = useSpeakingParticipants();
   const {
     localParticipant,
     isMicrophoneEnabled,
     isCameraEnabled,
     isScreenShareEnabled,
+    microphoneTrack,
   } = useLocalParticipant();
   const isDesktop = useIsDesktop();
 
@@ -937,6 +991,17 @@ const GuestCallStage = ({
       }
     }
   }, [localParticipant, isSharingScreen]);
+
+  // ── AI audio capture for guests ─────────────────────────────────────
+  // Same recorder as logged-in users; uploads go to the public
+  // guest-audio endpoint. Pauses automatically while the guest is muted.
+  useCallAIRecorder({
+    enabled: aiEnabled,
+    micOn: isMicrophoneEnabled,
+    micTrack: microphoneTrack?.track?.mediaStreamTrack || null,
+    onUpload: onUploadAudio,
+    onStatus: onRecorderStatus,
+  });
 
   // Apply data saver to local publishing
   useEffect(() => {
@@ -1279,6 +1344,8 @@ const GuestCallStage = ({
                 tab={aiTab}
                 setTab={setAiTab}
                 aiEnabled={aiEnabled}
+                recorderStatus={recorderStatus}
+                recorderError={recorderError}
                 transcript={transcript}
                 liveSummary={liveSummary}
                 chatMessages={chatMessages}
@@ -1306,6 +1373,8 @@ const GuestCallStage = ({
           tab={aiTab}
           setTab={setAiTab}
           aiEnabled={aiEnabled}
+          recorderStatus={recorderStatus}
+          recorderError={recorderError}
           transcript={transcript}
           liveSummary={liveSummary}
           chatMessages={chatMessages}
@@ -1364,6 +1433,10 @@ const JoinCall = () => {
     videoQuality: 'auto',
   });
 
+  // AI audio recorder state (reported by useCallAIRecorder)
+  const [recorderStatus, setRecorderStatus] = useState('idle');
+  const [recorderError, setRecorderError] = useState('');
+
   // AI panel — default open on desktop, closed on mobile
   const [aiPanelOpen, setAiPanelOpen] = useState(
     () => typeof window !== 'undefined' && window.innerWidth >= 768
@@ -1371,6 +1444,7 @@ const JoinCall = () => {
   const [aiTab, setAiTab] = useState('summary');
 
   const leavingRef = useRef(false);
+  const aiNoticeShownRef = useRef(false);
 
   // ─── Boot ─────────────────────────────────────────────────
   useEffect(() => {
@@ -1453,7 +1527,7 @@ const JoinCall = () => {
     }
   };
 
-  // Poll public state every 15s
+  // Poll public state (AI on/off, transcript, summary, chat, hands)
   useEffect(() => {
     if (phase !== 'in-call' || !code) return undefined;
     let cancelled = false;
@@ -1499,6 +1573,48 @@ const JoinCall = () => {
       clearInterval(timer);
     };
   }, [phase, code]);
+
+  // Tell guests when AI starts recording (their speech gets transcribed)
+  useEffect(() => {
+    if (phase === 'in-call' && aiEnabled && !aiNoticeShownRef.current) {
+      aiNoticeShownRef.current = true;
+      toast.info(
+        'AI notes are on — speech in this meeting is being transcribed for notes.',
+        { autoClose: 6000 }
+      );
+    }
+    if (!aiEnabled) aiNoticeShownRef.current = false;
+  }, [phase, aiEnabled]);
+
+  // Upload one standalone audio segment from the guest's mic.
+  // Throws on failure so the recorder can show the problem in the AI panel.
+  const handleUploadAudio = useCallback(
+    async (blob, filename) => {
+      const guestId = guestTokenData?.guestId;
+      if (!guestId || !code) throw new Error('Not connected as a guest.');
+
+      const form = new FormData();
+      form.append('audio', blob, filename);
+      form.append('guestId', guestId);
+
+      const res = await fetch(
+        `${API_BASE}/calls/guest-audio/${encodeURIComponent(code.trim())}`,
+        { method: 'POST', body: form }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.message || `Upload failed (${res.status})`);
+      }
+      // ai-disabled right after the host stops AI is normal — not an error.
+      return data;
+    },
+    [guestTokenData?.guestId, code]
+  );
+
+  const handleRecorderStatus = useCallback((status, msg) => {
+    setRecorderStatus(status);
+    setRecorderError(msg || '');
+  }, []);
 
   const handleDataSaverChange = useCallback((patch) => {
     setDataSaver((prev) => ({ ...prev, ...patch }));
@@ -1735,6 +1851,10 @@ const JoinCall = () => {
             deviceError={deviceError}
             code={code}
             aiEnabled={aiEnabled}
+            recorderStatus={recorderStatus}
+            recorderError={recorderError}
+            onUploadAudio={handleUploadAudio}
+            onRecorderStatus={handleRecorderStatus}
             transcript={transcript}
             liveSummary={liveSummary}
             chatMessages={chatMessages}

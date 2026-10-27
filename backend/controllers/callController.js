@@ -125,20 +125,40 @@ const notifyParticipants = async (userIds, title, body, data = {}) => {
   }
 };
 
-const isWorkspaceMember = async (workspaceId, userId) => {
-  const workspace = await Workspace.findById(workspaceId);
-  return workspace?.members.some(
-    (m) => m.user.toString() === userId && m.status === 'active'
+// One lookup that handles: owner not being listed in members, populated vs
+// raw ObjectIds, and role casing ("Admin" vs "admin").
+const getWorkspaceAccess = async (workspaceId, userId) => {
+  const none = { exists: false, isOwner: false, isAdmin: false, isMember: false };
+  if (!workspaceId) return none;
+
+  const workspace = await Workspace.findById(workspaceId).select('owner members');
+  if (!workspace) return none;
+
+  const uid = String(userId);
+  const ownerId = String(workspace.owner?._id || workspace.owner || '');
+  const isOwner = ownerId === uid;
+
+  const membership = (workspace.members || []).find(
+    (m) => String(m.user?._id || m.user) === uid && m.status === 'active'
   );
+  const role = String(membership?.role || '').toLowerCase();
+
+  return {
+    exists: true,
+    isOwner,
+    isAdmin: role === 'admin' || role === 'owner',
+    isMember: isOwner || !!membership,
+  };
+};
+
+const isWorkspaceMember = async (workspaceId, userId) => {
+  const access = await getWorkspaceAccess(workspaceId, userId);
+  return access.isMember;
 };
 
 const isWorkspaceAdminOrOwner = async (workspaceId, userId) => {
-  const workspace = await Workspace.findById(workspaceId);
-  if (!workspace) return false;
-  const m = workspace.members.find(
-    (mm) => mm.user.toString() === userId && mm.status === 'active'
-  );
-  return !!m && ['admin', 'owner'].includes(m.role);
+  const access = await getWorkspaceAccess(workspaceId, userId);
+  return access.isOwner || access.isAdmin;
 };
 
 const generateMeetingCode = () => {
@@ -158,6 +178,14 @@ const emitWorkspaceCallUpdate = (workspaceId, callId, status) => {
     });
   } catch (err) {
     console.error('emitWorkspaceCallUpdate:', err.message);
+  }
+};
+
+const emitToRoom = (roomId, event, payload) => {
+  try {
+    getIO().to(`room:${roomId}`).emit(event, payload);
+  } catch (err) {
+    console.error(`emitToRoom(${event}):`, err.message);
   }
 };
 
@@ -187,6 +215,18 @@ const finalizeAINotesIfNeeded = (call) => {
   finalizeCallNotes(call._id).catch((err) =>
     console.error('Finalize on call-end failed:', err.message)
   );
+};
+
+// Whisper tends to hallucinate these phrases on silence / room noise.
+const WHISPER_JUNK =
+  /^(thanks? for watching|thank you( so much)?( for watching)?|you|bye|bye bye|okay|ok|hmm+|uh+|um+|\.+)$/i;
+
+const isJunkTranscript = (text) => {
+  const cleaned = String(text || '')
+    .trim()
+    .replace(/[.!?,\s]+$/g, '')
+    .trim();
+  return !cleaned || WHISPER_JUNK.test(cleaned);
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -433,9 +473,9 @@ const scheduleCall = asyncHandler(async (req, res) => {
   }
 
   const scheduledDate = new Date(scheduledAt);
-  if (scheduledDate <= new Date()) {
+  if (Number.isNaN(scheduledDate.getTime()) || scheduledDate <= new Date()) {
     res.status(400);
-    throw new Error('Scheduled time must be in the future.');
+    throw new Error('Scheduled time must be a valid time in the future.');
   }
 
   const canSchedule = await isWorkspaceAdminOrOwner(workspaceId, userId);
@@ -1334,6 +1374,19 @@ const startCallAI = asyncHandler(async (req, res) => {
   const { noteDestination } = req.body || {};
 
   const result = await enableCallAI({ callId, userId, noteDestination });
+
+  // Tell everyone in the room so every client starts (or shows) its recorder
+  const call = await Call.findById(callId).select('roomId');
+  if (call) {
+    emitToRoom(call.roomId, 'call-ai-status', {
+      callId: String(callId),
+      enabled: true,
+      noteDestination: result.noteDestination,
+      startedBy: String(userId),
+    });
+  }
+
+  console.log(`[callAI] ENABLED call=${callId} by=${userId} dest=${result.noteDestination}`);
   res.status(200).json({ success: true, ...result });
 });
 
@@ -1345,6 +1398,17 @@ const stopCallAI = asyncHandler(async (req, res) => {
   const { callId } = req.params;
 
   const result = await disableCallAI({ callId, userId });
+
+  const call = await Call.findById(callId).select('roomId');
+  if (call) {
+    emitToRoom(call.roomId, 'call-ai-status', {
+      callId: String(callId),
+      enabled: false,
+      stoppedBy: String(userId),
+    });
+  }
+
+  console.log(`[callAI] DISABLED call=${callId} by=${userId} created=${result?.created}`);
   res.status(200).json({ success: true, ...result });
 });
 
@@ -1357,7 +1421,7 @@ const pushCallTranscript = asyncHandler(async (req, res) => {
   const { segments } = req.body || {};
 
   // Guard: ingestTranscript doesn't check participants itself
-  const call = await Call.findById(callId).select('participants');
+  const call = await Call.findById(callId).select('participants ai status');
   if (!call) {
     res.status(404);
     throw new Error('Call not found.');
@@ -1367,12 +1431,20 @@ const pushCallTranscript = asyncHandler(async (req, res) => {
     throw new Error('Access denied.');
   }
 
+  console.log(
+    `[callAI] transcript push call=${callId} user=${userId} segs=${
+      Array.isArray(segments) ? segments.length : 0
+    } aiEnabled=${!!call.ai?.enabled}`
+  );
+
   const result = await ingestTranscript({ callId, segments: segments || [] });
   res.status(200).json({ success: true, ...result });
 });
 
 // ─────────────────────────────────────────────────────────────
 // 21. Push audio chunk → STT → ingest (server-side transcription)
+//     Each upload must be a STANDALONE audio file (own header).
+//     The response always says why nothing was added.
 // ─────────────────────────────────────────────────────────────
 const pushCallAudioChunk = asyncHandler(async (req, res) => {
   const userId = req.user.id;
@@ -1380,10 +1452,12 @@ const pushCallAudioChunk = asyncHandler(async (req, res) => {
 
   if (!req.file) {
     res.status(400);
-    throw new Error('Audio file required.');
+    throw new Error(
+      'Audio file required (multipart field name must match the multer .single(...) name).'
+    );
   }
 
-  const call = await Call.findById(callId).select('participants ai');
+  const call = await Call.findById(callId).select('participants ai status');
   if (!call) {
     res.status(404);
     throw new Error('Call not found.');
@@ -1393,19 +1467,35 @@ const pushCallAudioChunk = asyncHandler(async (req, res) => {
     throw new Error('Access denied.');
   }
   if (!call.ai?.enabled) {
-    res.status(400);
-    throw new Error('AI is not enabled on this call.');
+    return res.status(200).json({ success: true, added: 0, reason: 'ai-disabled' });
   }
 
-  const stt = await transcribeAudio({
-    buffer: req.file.buffer,
-    mimeType: req.file.mimetype,
-    prompt:
-      'Team meeting conversation. Common product and people names may appear.',
-  });
+  console.log(
+    `[callAI] audio chunk call=${callId} user=${userId} bytes=${req.file.size} mime=${req.file.mimetype}`
+  );
 
-  if (!stt.text) {
-    return res.status(200).json({ success: true, added: 0 });
+  // Too small to contain speech (or a broken fragment)
+  if (req.file.size < 3000) {
+    return res.status(200).json({ success: true, added: 0, reason: 'too-small' });
+  }
+
+  let stt;
+  try {
+    stt = await transcribeAudio({
+      buffer: req.file.buffer,
+      mimeType: req.file.mimetype,
+      prompt:
+        'Team meeting conversation. Common product and people names may appear.',
+    });
+  } catch (err) {
+    console.error('[callAI] STT failed:', err.message);
+    res.status(502);
+    throw new Error(`Transcription failed: ${err.message}`);
+  }
+
+  const text = String(stt?.text || '').trim();
+  if (!text || isJunkTranscript(text)) {
+    return res.status(200).json({ success: true, added: 0, reason: 'silence' });
   }
 
   const user = await User.findById(userId).select('name');
@@ -1416,13 +1506,14 @@ const pushCallAudioChunk = asyncHandler(async (req, res) => {
       {
         speakerId: userId,
         speakerName: user?.name || 'You',
-        text: stt.text,
+        text,
         at: new Date(),
       },
     ],
   });
 
-  res.status(200).json({ success: true, text: stt.text, ...result });
+  console.log(`[callAI] ingested "${text.slice(0, 60)}" -> added=${result.added}`);
+  res.status(200).json({ success: true, text, ...result });
 });
 
 // ─────────────────────────────────────────────────────────────
@@ -1469,13 +1560,20 @@ const askCallAIVoice = asyncHandler(async (req, res) => {
     throw new Error('Audio file required.');
   }
 
-  const stt = await transcribeAudio({
-    buffer: req.file.buffer,
-    mimeType: req.file.mimetype,
-    prompt: 'A short question about the current meeting.',
-  });
+  let stt;
+  try {
+    stt = await transcribeAudio({
+      buffer: req.file.buffer,
+      mimeType: req.file.mimetype,
+      prompt: 'A short question about the current meeting.',
+    });
+  } catch (err) {
+    console.error('[callAI] voice question STT failed:', err.message);
+    res.status(502);
+    throw new Error(`Transcription failed: ${err.message}`);
+  }
 
-  if (!stt.text) {
+  if (!stt?.text || !String(stt.text).trim()) {
     return res.status(200).json({ success: true, empty: true });
   }
 
@@ -1827,9 +1925,7 @@ export {
   sendCallReaction,
   updateCallDataSaver,
   finalizeCallNotesHandler,
-
-  // in the export { ... } block, add:
-getPublicMeetingState,
+  getPublicMeetingState,
 
   // back-compat alias
   getCallLogs as getCallHistory,

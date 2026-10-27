@@ -61,6 +61,7 @@ import {
 
 import { useSocket } from '../components/SocketContext.jsx';
 import { ensureCallPermissions } from '../utils/callPermissions';
+import useCallAIRecorder from '../hooks/useCallAIRecorder';
 import {
   useGetCallByIdQuery,
   useGetCallTokenMutation,
@@ -71,7 +72,7 @@ import {
   useStartCallAIMutation,
   useStopCallAIMutation,
   useFinalizeCallNotesMutation,
-  usePushCallTranscriptMutation,
+  usePushCallAudioChunkMutation,
   useAskCallAITextMutation,
   useAskCallAIVoiceMutation,
   useSendInCallMessageMutation,
@@ -148,6 +149,22 @@ const SCREEN_SHARE_SUPPORTED =
   !!navigator.mediaDevices &&
   typeof navigator.mediaDevices.getDisplayMedia === 'function' &&
   !IS_NATIVE;
+
+// Human-readable text for the AI recorder state (shown in the AI panel)
+const recorderMessage = (status, error) => {
+  switch (status) {
+    case 'muted':
+      return 'Your microphone is muted — unmute so AI can hear you.';
+    case 'unsupported':
+      return "This device can't record audio for AI notes.";
+    case 'no-mic':
+      return 'Waiting for your microphone…';
+    case 'error':
+      return `AI audio problem: ${error || 'upload failed'}`;
+    default:
+      return 'Listening — your first words appear within about 10 seconds.';
+  }
+};
 
 // ─────────────────────────────────────────────────────────────────────
 // useIsDesktop hook
@@ -273,6 +290,7 @@ const playAudioDataUrl = (base64, format = 'wav', onEnded) => {
   }
 };
 
+// Push-to-talk recorder for "Ask AI by voice"
 const useVoiceRecorder = () => {
   const [recording, setRecording] = useState(false);
   const mediaRecorderRef = useRef(null);
@@ -344,67 +362,6 @@ const useVoiceRecorder = () => {
   );
 
   return { recording, start, stop };
-};
-
-const useLiveTranscript = ({ enabled, onFinal }) => {
-  const recognitionRef = useRef(null);
-  const [supported, setSupported] = useState(false);
-  const [listening, setListening] = useState(false);
-  const onFinalRef = useRef(onFinal);
-
-  useEffect(() => {
-    onFinalRef.current = onFinal;
-  }, [onFinal]);
-
-  useEffect(() => {
-    const SR =
-      typeof window !== 'undefined' &&
-      (window.SpeechRecognition || window.webkitSpeechRecognition);
-    if (!SR) return;
-    setSupported(true);
-    const rec = new SR();
-    rec.continuous = true;
-    rec.interimResults = true;
-    rec.lang = navigator.language || 'en-US';
-    rec.onresult = (event) => {
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const result = event.results[i];
-        const text = result[0]?.transcript?.trim();
-        if (!text) continue;
-        if (result.isFinal) onFinalRef.current?.(text);
-      }
-    };
-    rec.onerror = (e) => {
-      if (e.error !== 'no-speech' && e.error !== 'aborted') {
-        console.warn('[SR] error:', e.error);
-      }
-    };
-    recognitionRef.current = rec;
-    return () => {
-      try {
-        rec.stop();
-      } catch {}
-      recognitionRef.current = null;
-    };
-  }, []);
-
-  useEffect(() => {
-    const rec = recognitionRef.current;
-    if (!rec) return;
-    if (enabled && !listening) {
-      try {
-        rec.start();
-        setListening(true);
-      } catch {}
-    } else if (!enabled && listening) {
-      try {
-        rec.stop();
-      } catch {}
-      setListening(false);
-    }
-  }, [enabled, listening]);
-
-  return { supported, listening };
 };
 
 // ─────────────────────────────────────────────────────────────────────
@@ -970,7 +927,8 @@ const AIPanel = ({
   setTab,
   brandColor,
   aiEnabled,
-  transcriptSupported,
+  recorderStatus,
+  recorderError,
   transcript,
   liveSummary,
   exchanges,
@@ -997,6 +955,9 @@ const AIPanel = ({
     { id: 'ask', label: 'Ask AI', icon: <FaQuestionCircle /> },
     { id: 'chat', label: 'Chat', icon: <FaLightbulb /> },
   ];
+
+  const recorderProblem =
+    aiEnabled && ['muted', 'unsupported', 'no-mic', 'error'].includes(recorderStatus);
 
   return (
     <div className="fixed inset-0 z-[70] flex sm:items-stretch sm:justify-end">
@@ -1028,7 +989,13 @@ const AIPanel = ({
           </button>
         </div>
 
-        <div className="flex border-b border-white/10 flex-shrink-0">
+        {recorderProblem && (
+          <div className="mx-4 mt-3 rounded-lg bg-amber-500/10 border border-amber-500/30 px-3 py-2 text-xs text-amber-300 flex-shrink-0">
+            {recorderMessage(recorderStatus, recorderError)}
+          </div>
+        )}
+
+        <div className="flex border-b border-white/10 flex-shrink-0 mt-2">
           {tabs.map((t) => (
             <button
               key={t.id}
@@ -1061,7 +1028,10 @@ const AIPanel = ({
               )}
               {aiEnabled && !liveSummary && (
                 <div className="text-sm text-gray-400 flex items-center gap-2">
-                  <FaSpinner className="animate-spin" /> Listening for context…
+                  <FaSpinner className="animate-spin" />
+                  {transcript.length === 0
+                    ? 'Listening for context…'
+                    : 'Building the summary — it appears after a few more sentences…'}
                 </div>
               )}
               {liveSummary && (
@@ -1124,20 +1094,18 @@ const AIPanel = ({
 
           {tab === 'transcript' && (
             <div className="space-y-2">
-              {!transcriptSupported && aiEnabled && (
-                <div className="rounded-lg bg-amber-500/10 border border-amber-500/30 px-3 py-2 text-xs text-amber-300">
-                  Live transcription isn't supported in this browser. Use
-                  Ask-AI or in-call chat — both still work.
-                </div>
-              )}
               {!aiEnabled && (
                 <div className="text-sm text-gray-400">
                   Turn on AI to start the transcript.
                 </div>
               )}
               {aiEnabled && transcript.length === 0 && (
-                <div className="text-sm text-gray-400">
-                  Waiting for the first words…
+                <div className="text-sm text-gray-400 flex items-center gap-2">
+                  {recorderStatus === 'listening' ||
+                  recorderStatus === 'sending' ? (
+                    <FaSpinner className="animate-spin flex-shrink-0" />
+                  ) : null}
+                  <span>{recorderMessage(recorderStatus, recorderError)}</span>
                 </div>
               )}
               {transcript.map((s, i) => (
@@ -1415,8 +1383,8 @@ const CallStage = ({
   aiStarting,
   onStartAI,
   onStopAI,
-  transcriptSupported,
-  onTranscriptSegment,
+  onUploadAudio,
+  onRecorderStatus,
   onOpenAIPanel,
   transcriptCount,
   handRaised,
@@ -1441,6 +1409,7 @@ const CallStage = ({
     isMicrophoneEnabled,
     isCameraEnabled,
     isScreenShareEnabled,
+    microphoneTrack,
   } = useLocalParticipant();
   const room = useRoomContext();
   const isDesktop = useIsDesktop();
@@ -1657,9 +1626,17 @@ const CallStage = ({
     }
   }, [localParticipant, isSharingScreen]);
 
-  useLiveTranscript({
-    enabled: aiEnabled && isMicrophoneEnabled && transcriptSupported,
-    onFinal: onTranscriptSegment,
+  // ── AI audio capture ────────────────────────────────────────────────
+  // Records THIS user's LiveKit mic in standalone ~10 s files and uploads
+  // them for server-side Whisper. Replaces the Web Speech API, which does
+  // not exist in Android WebView and is unreliable on Chrome mobile.
+  // Pauses automatically while the user is muted.
+  useCallAIRecorder({
+    enabled: aiEnabled,
+    micOn: isMicrophoneEnabled,
+    micTrack: microphoneTrack?.track?.mediaStreamTrack || null,
+    onUpload: onUploadAudio,
+    onStatus: onRecorderStatus,
   });
 
   useEffect(() => {
@@ -2228,7 +2205,7 @@ const CallScreen = () => {
   const [startCallAI] = useStartCallAIMutation();
   const [stopCallAI] = useStopCallAIMutation();
   const [finalizeCallNotes] = useFinalizeCallNotesMutation();
-  const [pushCallTranscript] = usePushCallTranscriptMutation();
+  const [pushCallAudioChunk] = usePushCallAudioChunkMutation();
   const [askCallAIText] = useAskCallAITextMutation();
   const [askCallAIVoice] = useAskCallAIVoiceMutation();
   const [sendInCallMessage] = useSendInCallMessageMutation();
@@ -2261,6 +2238,10 @@ const CallScreen = () => {
   });
   const [reactions, setReactions] = useState([]);
   const [noteReady, setNoteReady] = useState(null);
+
+  // AI audio recorder state (reported by useCallAIRecorder)
+  const [recorderStatus, setRecorderStatus] = useState('idle');
+  const [recorderError, setRecorderError] = useState('');
 
   const [askText, setAskText] = useState('');
   const [askingText, setAskingText] = useState(false);
@@ -2467,6 +2448,12 @@ const CallScreen = () => {
       });
       toast.success('AI notes are ready!');
     };
+    // Someone turned AI on/off → refetch so EVERY participant's recorder
+    // starts/stops immediately instead of waiting for the 20 s poll.
+    const onAIStatus = (p) => {
+      if (String(p.callId) !== String(callId)) return;
+      refetchCall?.();
+    };
 
     socket.on('call-ended', onEnded);
     socket.on('call-transcript-update', onTranscript);
@@ -2476,6 +2463,7 @@ const CallScreen = () => {
     socket.on('call-hand-update', onHand);
     socket.on('call-reaction', onReaction);
     socket.on('call-note-ready', onNoteReady);
+    socket.on('call-ai-status', onAIStatus);
 
     return () => {
       socket.off('call-ended', onEnded);
@@ -2486,6 +2474,7 @@ const CallScreen = () => {
       socket.off('call-hand-update', onHand);
       socket.off('call-reaction', onReaction);
       socket.off('call-note-ready', onNoteReady);
+      socket.off('call-ai-status', onAIStatus);
       socket.emit('leave-call-room', room);
     };
   }, [socket, call?.roomId, callId, refetchCall]);
@@ -2547,13 +2536,14 @@ const CallScreen = () => {
     setAiStarting(true);
     try {
       await startCallAI({ callId }).unwrap();
+      await refetchCall?.();
       toast.success('AI notes started');
     } catch (err) {
       toast.error(err?.data?.message || 'Could not start AI');
     } finally {
       setAiStarting(false);
     }
-  }, [aiStarting, callId, startCallAI]);
+  }, [aiStarting, callId, startCallAI, refetchCall]);
 
   const handleStopAI = useCallback(async () => {
     if (aiStarting) return;
@@ -2578,22 +2568,37 @@ const CallScreen = () => {
     }
   }, [aiStarting, callId, stopCallAI]);
 
-  const handleTranscriptSegment = useCallback(
-    (text) => {
+  // Called by useCallAIRecorder with each standalone audio segment.
+  // Throws on failure so the recorder can surface the error in the AI panel.
+  const handleUploadAudio = useCallback(
+    async (blob, filename) => {
       if (audioRef.current) {
+        // Don't let the AI's spoken answer talk over / get re-recorded
         try {
           audioRef.current.pause();
         } catch {}
         audioRef.current = null;
       }
-      if (!aiEnabled || !callId || !text?.trim()) return;
-      pushCallTranscript({
+      const res = await pushCallAudioChunk({
         callId,
-        segments: [{ text: text.trim(), isFinal: true, at: new Date() }],
-      }).catch(() => {});
+        audio: blob,
+        filename,
+      }).unwrap();
+
+      // The server says AI is off while the UI thinks it is on → the
+      // `ai.enabled` flag isn't being persisted (check models/call.js).
+      if (res?.reason === 'ai-disabled') {
+        throw new Error('Server says AI is off for this call.');
+      }
+      return res;
     },
-    [aiEnabled, callId, pushCallTranscript]
+    [callId, pushCallAudioChunk]
   );
+
+  const handleRecorderStatus = useCallback((status, msg) => {
+    setRecorderStatus(status);
+    setRecorderError(msg || '');
+  }, []);
 
   const handleAskText = useCallback(async () => {
     const q = askText.trim();
@@ -3021,11 +3026,8 @@ const CallScreen = () => {
             aiStarting={aiStarting}
             onStartAI={handleStartAI}
             onStopAI={handleStopAI}
-            transcriptSupported={
-              typeof window !== 'undefined' &&
-              !!(window.SpeechRecognition || window.webkitSpeechRecognition)
-            }
-            onTranscriptSegment={handleTranscriptSegment}
+            onUploadAudio={handleUploadAudio}
+            onRecorderStatus={handleRecorderStatus}
             onOpenAIPanel={(tab) => {
               if (tab) setAiTab(tab);
               setAiPanelOpen(true);
@@ -3053,10 +3055,8 @@ const CallScreen = () => {
           setTab={setAiTab}
           brandColor={BRAND}
           aiEnabled={aiEnabled}
-          transcriptSupported={
-            typeof window !== 'undefined' &&
-            !!(window.SpeechRecognition || window.webkitSpeechRecognition)
-          }
+          recorderStatus={recorderStatus}
+          recorderError={recorderError}
           transcript={transcript}
           liveSummary={liveSummary}
           exchanges={aiExchanges}
