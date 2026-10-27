@@ -208,13 +208,24 @@ const shouldCallEnd = (call) => {
   return false;
 };
 
-// Fire-and-forget: finalize any AI notes on a call that is ending.
-// Safe to call even if AI was never enabled — finalizeCallNotes returns early.
+// Fire-and-forget: finalize AI notes on a call that is ending.
+// NOTE: callers set `call.ai.enabled = false` BEFORE calling this, so this
+// helper must NOT check `ai.enabled` — callers decide via `shouldFinalizeAI`.
+// finalizeCallNotes is idempotent and returns early when there's no
+// transcript or a note was already generated.
 const finalizeAINotesIfNeeded = (call) => {
-  if (!call?.ai?.enabled) return;
-  finalizeCallNotes(call._id).catch((err) =>
-    console.error('Finalize on call-end failed:', err.message)
-  );
+  if (!call?._id) return;
+  finalizeCallNotes(call._id)
+    .then((result) => {
+      console.log(
+        `[callAI] finalize on call-end call=${call._id} created=${result?.created} reason=${
+          result?.reason || (result?.alreadyFinalized ? 'already-finalized' : 'ok')
+        }`
+      );
+    })
+    .catch((err) =>
+      console.error('Finalize on call-end failed:', err.message)
+    );
 };
 
 // Whisper tends to hallucinate these phrases on silence / room noise.
