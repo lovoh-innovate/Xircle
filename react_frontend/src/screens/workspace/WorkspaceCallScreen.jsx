@@ -18,7 +18,6 @@ import {
   useTracks,
   useLocalParticipant,
   useParticipants,
-  useSpeakingParticipants,
   useIsSpeaking,
   useIsMuted,
   useRoomContext,
@@ -56,7 +55,6 @@ import {
   FaWifi,
   FaQuestionCircle,
   FaCommentDots,
-  FaLightbulb,
   FaBookOpen,
   FaCircle,
 } from 'react-icons/fa';
@@ -71,8 +69,6 @@ import {
   useInviteByUsernameMutation,
   useStartCallAIMutation,
   useStopCallAIMutation,
-  useFinalizeCallNotesMutation,
-  usePushCallTranscriptMutation,
   useAskCallAITextMutation,
   useAskCallAIVoiceMutation,
   useSendInCallMessageMutation,
@@ -83,10 +79,23 @@ import {
 import { useGetWorkspaceQuery } from '../../slices/workspaceApiSlice';
 import { useSocket } from '../../components/SocketContext.jsx';
 import { ensureCallPermissions } from '../../utils/callPermissions';
+// ── AI additions (mirrors JoinCall.jsx) ─────────────────────────────
+import useCallAIRecorder from '../../hooks/useCallAIRecorder';
 
 // ─────────────────────────────────────────────────────────────────────
 // Config
 // ─────────────────────────────────────────────────────────────────────
+const RAW_API_URL = import.meta.env.VITE_API_URL;
+const API_BASE = (() => {
+  if (!RAW_API_URL) return '/api';
+  const cleaned = String(RAW_API_URL).replace(/\/+$/, '');
+  if (!cleaned) return '/api';
+  if (/^https?:\/\//i.test(cleaned) && !/\/api$/.test(cleaned)) {
+    return `${cleaned}/api`;
+  }
+  return cleaned;
+})();
+
 const ROOM_OPTIONS = {
   audioCaptureDefaults: {
     echoCancellation: true,
@@ -134,6 +143,22 @@ const deviceFailureMessage = (failure) => {
       return 'Your microphone or camera is being used by another app.';
     default:
       return 'Could not start your microphone or camera.';
+  }
+};
+
+// Human-readable status for the AI audio recorder (matches guest copy)
+const recorderMessage = (status, error) => {
+  switch (status) {
+    case 'muted':
+      return 'Your microphone is muted — unmute so AI can hear you.';
+    case 'unsupported':
+      return "This device can't record audio for AI notes.";
+    case 'no-mic':
+      return 'Waiting for your microphone…';
+    case 'error':
+      return `AI audio problem: ${error || 'upload failed'}`;
+    default:
+      return 'Listening — first words appear within about 10 seconds.';
   }
 };
 
@@ -261,7 +286,7 @@ const useWakeLock = (active) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// AI helpers
+// AI helpers (keep the "ask by voice" recorder)
 // ─────────────────────────────────────────────────────────────────────
 const playAudioDataUrl = (base64, format = 'wav', onEnded) => {
   try {
@@ -346,67 +371,6 @@ const useVoiceRecorder = () => {
   );
 
   return { recording, start, stop };
-};
-
-const useLiveTranscript = ({ enabled, onFinal }) => {
-  const recognitionRef = useRef(null);
-  const [supported, setSupported] = useState(false);
-  const [listening, setListening] = useState(false);
-  const onFinalRef = useRef(onFinal);
-
-  useEffect(() => {
-    onFinalRef.current = onFinal;
-  }, [onFinal]);
-
-  useEffect(() => {
-    const SR =
-      typeof window !== 'undefined' &&
-      (window.SpeechRecognition || window.webkitSpeechRecognition);
-    if (!SR) return;
-    setSupported(true);
-    const rec = new SR();
-    rec.continuous = true;
-    rec.interimResults = true;
-    rec.lang = navigator.language || 'en-US';
-    rec.onresult = (event) => {
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const result = event.results[i];
-        const text = result[0]?.transcript?.trim();
-        if (!text) continue;
-        if (result.isFinal) onFinalRef.current?.(text);
-      }
-    };
-    rec.onerror = (e) => {
-      if (e.error !== 'no-speech' && e.error !== 'aborted') {
-        console.warn('[SR] error:', e.error);
-      }
-    };
-    recognitionRef.current = rec;
-    return () => {
-      try {
-        rec.stop();
-      } catch {}
-      recognitionRef.current = null;
-    };
-  }, []);
-
-  useEffect(() => {
-    const rec = recognitionRef.current;
-    if (!rec) return;
-    if (enabled && !listening) {
-      try {
-        rec.start();
-        setListening(true);
-      } catch {}
-    } else if (!enabled && listening) {
-      try {
-        rec.stop();
-      } catch {}
-      setListening(false);
-    }
-  }, [enabled, listening]);
-
-  return { supported, listening };
 };
 
 // ═════════════════════════════════════════════════════════════════════
@@ -741,7 +705,7 @@ const PipBubble = ({ participant, cameraRef, brandColor }) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// Invite modal (unchanged)
+// Invite modal
 // ─────────────────────────────────────────────────────────────────────
 const InviteByUsernameModal = ({ isOpen, onClose, brandColor, onInvite }) => {
   const [text, setText] = useState('');
@@ -866,12 +830,7 @@ const FloatingReactions = ({ reactions }) => (
 const REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '👏', '🎉', '🔥', '👎'];
 
 const ReactionPicker = ({ open, onClose, onPick }) => (
-  <Sheet
-    open={open}
-    onClose={onClose}
-    title="Send a reaction"
-    maxWidth="sm:max-w-sm"
-  >
+  <Sheet open={open} onClose={onClose} title="Send a reaction" maxWidth="sm:max-w-sm">
     <div className="grid grid-cols-4 gap-2">
       {REACTION_EMOJIS.map((e) => (
         <button
@@ -936,20 +895,8 @@ const DataSaverMenu = ({ open, onClose, dataSaver, onChange }) => {
   );
 };
 
-const SpeakerMenu = ({
-  open,
-  onClose,
-  outputs,
-  currentId,
-  onSelect,
-  supported,
-}) => (
-  <Sheet
-    open={open}
-    onClose={onClose}
-    title="Audio output"
-    maxWidth="sm:max-w-sm"
-  >
+const SpeakerMenu = ({ open, onClose, outputs, currentId, onSelect, supported }) => (
+  <Sheet open={open} onClose={onClose} title="Audio output" maxWidth="sm:max-w-sm">
     {!supported && (
       <div className="text-sm text-gray-400 leading-relaxed">
         This browser doesn't let apps choose the audio output. On iOS, call
@@ -1029,7 +976,8 @@ const AIPanelContent = ({
   setTab,
   brandColor,
   aiEnabled,
-  transcriptSupported,
+  recorderStatus,
+  recorderError,
   transcript,
   liveSummary,
   exchanges,
@@ -1050,6 +998,10 @@ const AIPanelContent = ({
     { id: 'transcript', label: 'Transcript', icon: <FaCommentDots /> },
     { id: 'ask', label: 'Ask AI', icon: <FaQuestionCircle /> },
   ];
+
+  const recorderProblem =
+    aiEnabled &&
+    ['muted', 'unsupported', 'no-mic', 'error'].includes(recorderStatus);
 
   return (
     <>
@@ -1079,7 +1031,20 @@ const AIPanelContent = ({
         </button>
       </div>
 
-      <div className="flex border-b border-white/10 flex-shrink-0">
+      {aiEnabled && (
+        <div className="mx-4 mt-3 rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-[11px] text-gray-300 flex-shrink-0">
+          AI notes are on — everyone's speech, including yours, is transcribed
+          for the meeting notes. Mute your mic to pause it for you.
+        </div>
+      )}
+
+      {recorderProblem && (
+        <div className="mx-4 mt-3 rounded-lg bg-amber-500/10 border border-amber-500/30 px-3 py-2 text-xs text-amber-300 flex-shrink-0">
+          {recorderMessage(recorderStatus, recorderError)}
+        </div>
+      )}
+
+      <div className="flex border-b border-white/10 flex-shrink-0 mt-2">
         {tabs.map((t) => (
           <button
             key={t.id}
@@ -1111,7 +1076,10 @@ const AIPanelContent = ({
             )}
             {aiEnabled && !liveSummary && (
               <div className="text-sm text-gray-400 flex items-center gap-2">
-                <FaSpinner className="animate-spin" /> Listening for context…
+                <FaSpinner className="animate-spin" />
+                {transcript.length === 0
+                  ? 'Listening for context…'
+                  : 'Building the summary — it appears after a few more sentences…'}
               </div>
             )}
             {liveSummary && (
@@ -1177,19 +1145,18 @@ const AIPanelContent = ({
 
         {tab === 'transcript' && (
           <div className="space-y-2">
-            {!transcriptSupported && aiEnabled && (
-              <div className="rounded-lg bg-amber-500/10 border border-amber-500/30 px-3 py-2 text-xs text-amber-300">
-                Live transcription isn't supported in this browser.
-              </div>
-            )}
             {!aiEnabled && (
               <div className="text-sm text-gray-400">
                 Turn on AI to start the transcript.
               </div>
             )}
             {aiEnabled && transcript.length === 0 && (
-              <div className="text-sm text-gray-400">
-                Waiting for the first words…
+              <div className="text-sm text-gray-400 flex items-center gap-2">
+                {(recorderStatus === 'listening' ||
+                  recorderStatus === 'sending') && (
+                  <FaSpinner className="animate-spin flex-shrink-0" />
+                )}
+                <span>{recorderMessage(recorderStatus, recorderError)}</span>
               </div>
             )}
             {transcript.map((s, i) => (
@@ -1298,18 +1265,6 @@ const AIPanelOverlay = (props) => {
   );
 };
 
-const AIPanelSidebar = (props) => {
-  const { width } = props;
-  return (
-    <div
-      style={{ width }}
-      className="h-full flex flex-col bg-[#0f0f15] border-l border-white/10 flex-shrink-0 min-w-0"
-    >
-      <AIPanelContent {...props} />
-    </div>
-  );
-};
-
 // ─────────────────────────────────────────────────────────────────────
 // Chat sidebar (desktop)
 // ─────────────────────────────────────────────────────────────────────
@@ -1328,10 +1283,7 @@ const ChatSidebar = ({
   }, [messages.length]);
 
   return (
-    <div
-      style={{}}
-      className="h-full flex flex-col bg-[#0f0f15] border-l border-white/10"
-    >
+    <div className="h-full flex flex-col bg-[#0f0f15] border-l border-white/10">
       <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between flex-shrink-0">
         <h3 className="text-sm font-semibold flex items-center gap-2">
           <FaCommentDots style={{ color: brandColor }} />
@@ -1422,8 +1374,8 @@ const CallStage = ({
   aiStarting,
   onStartAI,
   onStopAI,
-  transcriptSupported,
-  onTranscriptSegment,
+  onUploadAudio,
+  onRecorderStatus,
   onOpenAIPanel,
   transcriptCount,
   handRaised,
@@ -1443,12 +1395,12 @@ const CallStage = ({
   const participants = useParticipants();
   const cameraTracks = useTracks([Track.Source.Camera]);
   const screenTracks = useTracks([Track.Source.ScreenShare]);
-  const speaking = useSpeakingParticipants();
   const {
     localParticipant,
     isMicrophoneEnabled,
     isCameraEnabled,
     isScreenShareEnabled,
+    microphoneTrack, // ← needed by useCallAIRecorder
   } = useLocalParticipant();
   const room = useRoomContext();
   const isDesktop = useIsDesktop();
@@ -1668,11 +1620,19 @@ const CallStage = ({
     }
   }, [localParticipant, isSharingScreen]);
 
-  useLiveTranscript({
-    enabled: aiEnabled && isMicrophoneEnabled && transcriptSupported,
-    onFinal: onTranscriptSegment,
+  // ── AI audio capture (server-side transcription) ──────────────────
+  // Replaces the browser's SpeechRecognition hook. Slices the local mic
+  // into short audio chunks and uploads them; the server transcribes
+  // them and broadcasts `call-transcript-update` socket events.
+  useCallAIRecorder({
+    enabled: aiEnabled,
+    micOn: isMicrophoneEnabled,
+    micTrack: microphoneTrack?.track?.mediaStreamTrack || null,
+    onUpload: onUploadAudio,
+    onStatus: onRecorderStatus,
   });
 
+  // Apply data saver to local publishing
   useEffect(() => {
     if (!localParticipant) return;
     try {
@@ -1691,6 +1651,7 @@ const CallStage = ({
     }
   }, [dataSaver, localParticipant, isCameraEnabled]);
 
+  // Bring the camera back if the browser stopped it while hidden
   useEffect(() => {
     if (!localParticipant) return undefined;
     let camWasOn = false;
@@ -2230,8 +2191,6 @@ const WorkspaceCallScreen = () => {
 
   const [startCallAI] = useStartCallAIMutation();
   const [stopCallAI] = useStopCallAIMutation();
-  const [finalizeCallNotes] = useFinalizeCallNotesMutation();
-  const [pushCallTranscript] = usePushCallTranscriptMutation();
   const [askCallAIText] = useAskCallAITextMutation();
   const [askCallAIVoice] = useAskCallAIVoiceMutation();
   const [sendInCallMessage] = useSendInCallMessageMutation();
@@ -2248,7 +2207,6 @@ const WorkspaceCallScreen = () => {
   const [connectionLost, setConnectionLost] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [endConfirmOpen, setEndConfirmOpen] = useState(false);
-  const [roomReady, setRoomReady] = useState(false);
 
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const [aiTab, setAiTab] = useState('summary');
@@ -2266,6 +2224,10 @@ const WorkspaceCallScreen = () => {
   });
   const [reactions, setReactions] = useState([]);
   const [noteReady, setNoteReady] = useState(null);
+
+  // ── AI recorder state (mirrors the guest screen) ──────────────────
+  const [recorderStatus, setRecorderStatus] = useState('idle');
+  const [recorderError, setRecorderError] = useState('');
 
   const [askText, setAskText] = useState('');
   const [askingText, setAskingText] = useState(false);
@@ -2498,6 +2460,50 @@ const WorkspaceCallScreen = () => {
     };
   }, [socket, call?.roomId, callId, workspaceId, refetchCall]);
 
+  // ── AI audio upload (authenticated equivalent of /guest-audio) ────
+  // Mirrors the guest endpoint. The server transcribes and broadcasts
+  // `call-transcript-update` socket events back to every participant.
+  const handleUploadAudio = useCallback(
+    async (blob, filename) => {
+      if (!callId) throw new Error('Not in a call.');
+
+      const form = new FormData();
+      form.append('audio', blob, filename);
+
+      const headers = {};
+      // Auth: prefer Bearer if a token is available, otherwise fall back
+      // to cookie-based auth via credentials: 'include'.
+      const token =
+        userInfo?.token ||
+        (typeof window !== 'undefined'
+          ? localStorage.getItem('token') ||
+            localStorage.getItem('accessToken')
+          : null);
+      if (token) headers.Authorization = `Bearer ${token}`;
+
+      const res = await fetch(
+        `${API_BASE}/calls/audio/${encodeURIComponent(callId)}`,
+        {
+          method: 'POST',
+          body: form,
+          headers,
+          credentials: 'include',
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.message || `Upload failed (${res.status})`);
+      }
+      return data;
+    },
+    [callId, userInfo?.token]
+  );
+
+  const handleRecorderStatus = useCallback((status, msg) => {
+    setRecorderStatus(status);
+    setRecorderError(msg || '');
+  }, []);
+
   const handleAnswer = () => doJoin({ markAccepted: true });
 
   const handleDecline = async () => {
@@ -2588,22 +2594,16 @@ const WorkspaceCallScreen = () => {
     }
   }, [aiStarting, callId, workspaceId, stopCallAI]);
 
-  const handleTranscriptSegment = useCallback(
-    (text) => {
-      if (audioRef.current) {
-        try {
-          audioRef.current.pause();
-        } catch {}
-        audioRef.current = null;
-      }
-      if (!aiEnabled || !callId || !text?.trim()) return;
-      pushCallTranscript({
-        callId,
-        segments: [{ text: text.trim(), isFinal: true, at: new Date() }],
-      }).catch(() => {});
-    },
-    [aiEnabled, callId, pushCallTranscript]
-  );
+  // Pause AI voice answer playback when the user starts speaking.
+  // (Was previously triggered by local SpeechRecognition; with server
+  // transcription we pause on any transcript delta instead.)
+  useEffect(() => {
+    if (!audioRef.current) return;
+    try {
+      audioRef.current.pause();
+    } catch {}
+    audioRef.current = null;
+  }, [transcript.length]);
 
   const handleAskText = useCallback(async () => {
     const q = askText.trim();
@@ -3013,7 +3013,6 @@ const WorkspaceCallScreen = () => {
           audio
           video={wantsVideo}
           options={ROOM_OPTIONS}
-          onConnected={() => setRoomReady(true)}
           onDisconnected={handleDisconnected}
           onMediaDeviceFailure={handleDeviceFailure}
         >
@@ -3031,11 +3030,8 @@ const WorkspaceCallScreen = () => {
             aiStarting={aiStarting}
             onStartAI={handleStartAI}
             onStopAI={handleStopAI}
-            transcriptSupported={
-              typeof window !== 'undefined' &&
-              !!(window.SpeechRecognition || window.webkitSpeechRecognition)
-            }
-            onTranscriptSegment={handleTranscriptSegment}
+            onUploadAudio={handleUploadAudio}
+            onRecorderStatus={handleRecorderStatus}
             onOpenAIPanel={() => setAiPanelOpen(true)}
             transcriptCount={transcript.length}
             handRaised={handRaised}
@@ -3060,10 +3056,8 @@ const WorkspaceCallScreen = () => {
           setTab={setAiTab}
           brandColor={brandColor}
           aiEnabled={aiEnabled}
-          transcriptSupported={
-            typeof window !== 'undefined' &&
-            !!(window.SpeechRecognition || window.webkitSpeechRecognition)
-          }
+          recorderStatus={recorderStatus}
+          recorderError={recorderError}
           transcript={transcript}
           liveSummary={liveSummary}
           exchanges={aiExchanges}
@@ -3137,7 +3131,6 @@ const WorkspaceCallScreen = () => {
           <button
             onClick={() => {
               setConnectionLost(false);
-              setRoomReady(false);
               leavingRef.current = false;
               hasJoinedRef.current = false;
               doJoin({ markAccepted: false });
