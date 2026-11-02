@@ -564,6 +564,7 @@ const router = createBrowserRouter([
        { path: "notes/:id", element: <WriteNote /> },
        {path: "join/:code", element: <JoinCall />},
       { path: "*", element: <NotFound /> },
+      { path: "workspace/:workspaceId/notes/:id", element: <WorkspaceWriteNote /> },
 
       // ── Public workspace routes (view without login) ──────────────
       {
@@ -605,7 +606,7 @@ const router = createBrowserRouter([
 
           // Notes
           { path: "workspace/:workspaceId/notes", element: <WorkspaceNotes /> },
-          { path: "workspace/:workspaceId/notes/:id", element: <WorkspaceWriteNote /> },
+      
 
           //calls
           {path: "workspace/:workspaceId/calls", element: <WorkspaceCall />},

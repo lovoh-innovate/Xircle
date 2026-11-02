@@ -2,7 +2,7 @@ import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
 import { logout } from './authSlice';
 
 const rawBaseQuery = fetchBaseQuery({
-  baseUrl: `${import.meta.env.VITE_API_URL || 'https://xircle.onrender.com'}/api`,
+  baseUrl: `${import.meta.env.VITE_API_URL || ''}/api`,
   credentials: 'omit', // ← was 'include'. We don't need cross-site cookies at all —
                         // auth is carried entirely by the Authorization header below,
                         // which is immune to Safari's cross-site cookie blocking.
@@ -50,11 +50,12 @@ const baseQueryWithReauth = async (args, api, extraOptions) => {
 export const apiSlice = createApi({
   baseQuery: baseQueryWithReauth,
   tagTypes: [
-    'User', 'Workspace', 'Project', 'Task', 'Chat', 'Message', 'Typing',
-    'UserSearch', 'Team', 'Membership', 'PendingRequests', 'AppVersion',
-    'PublicGroup', 'JoinRequest', 'Member', 'Notification',
-    'NotificationPreferences', 'PersonalFolder', 'PersonalTask', 'Folder', 'Call',
-  ],
+  'User', 'Workspace', 'Project', 'Task', 'Chat', 'Message', 'Typing',
+  'UserSearch', 'Team', 'Membership', 'PendingRequests', 'AppVersion',
+  'PublicGroup', 'JoinRequest', 'Member', 'Notification',
+  'NotificationPreferences', 'PersonalFolder', 'PersonalTask', 'Folder', 'Call',
+  'WorkspaceNote', 'WorkspaceNoteFolder',   // ← add these two
+],
   refetchOnReconnect: true,
   refetchOnMountOrArgChange: 30,
   refetchOnFocus: true,

@@ -1,20 +1,29 @@
 // src/screens/workspace/WorkspaceWriteNote.jsx
 //
-// Workspace-scoped note editor. Same UX/layout as pages/WriteNote.jsx:
-//   [ notes list (desktop) ] [ editor ]
-// The outer workspace chrome (nav sidebar, bottombar) is provided by the
-// parent layout — this file does NOT import WorkspaceSidebar / Bottombar.
+// Workspace-scoped note editor with PUBLIC SHARING (mirrors pages/WriteNote.jsx).
+//   [ notes list / viewer sidebar (desktop) ] [ editor / viewer ]
 //
-// Route params: `:workspaceId` and `:noteId` (also accepts `:id`).
+// Route (must be reachable WITHOUT login, i.e. outside any protected layout):
+//   /workspace/:workspaceId/notes/:noteId
+//
+// ROLES
+//   • Guest (not logged in)      → can read PUBLIC notes only. Sees the viewer
+//                                   sidebar + "Edit" preview that prompts login.
+//   • Logged-in NON-member       → can read PUBLIC notes only. Viewer sidebar.
+//   • Workspace member           → can read every note in the workspace.
+//   • Author / Admin / Owner     → can edit, delete, change visibility
+//                                   (this matches server-side `canManageNote`).
+//
+// SHARING
+//   • Lock / unlock button toggles visibility: 'workspace' <-> 'public'
+//     (PATCH /workspace-notes/:id/visibility).
+//   • The share link is the note URL itself. When the note is public anyone
+//     with the link can open it — the backend `getWorkspaceNote` uses
+//     optionalAuth, so make sure that route uses `optionalAuth`, not `protect`.
 //
 // CALLOUTS:
-//   • setCallout wraps top-level blocks (depth 1). This is what makes
-//     "wrap a numbered list" work: the *list* is wrapped whole, instead of
-//     trying to wrap a single listItem (which isn't a valid child of a
-//     callout and silently failed under the old wrapIn() approach).
-//   • unsetCallout swaps the callout node with its own children — lifting
-//     its content one level up. This always works, regardless of what's
-//     inside (paragraphs, lists, tables, nested callouts).
+//   • setCallout wraps top-level blocks (depth 1) so lists/tables wrap whole.
+//   • unsetCallout swaps the callout node with its own children.
 
 import React, {
   useState,
@@ -25,7 +34,7 @@ import React, {
   useMemo,
   useReducer,
 } from 'react';
-import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import { useParams, useNavigate, useLocation, Link } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 
 import { useEditor, EditorContent } from '@tiptap/react';
@@ -48,6 +57,7 @@ import {
   useGetWorkspaceNotesQuery,
   useCreateWorkspaceNoteMutation,
   useUpdateWorkspaceNoteMutation,
+  useUpdateWorkspaceNoteVisibilityMutation,
   useDeleteWorkspaceNoteMutation,
 } from '../../slices/workspaceNoteApiSlice';
 
@@ -73,6 +83,7 @@ import {
   FaEllipsisV, FaChevronRight, FaFeather, FaPuzzlePiece, FaPaintBrush,
   FaObjectGroup, FaObjectUngroup, FaRegLightbulb, FaGripLines,
   FaExclamationTriangle, FaInfoCircle, FaCheckCircle, FaTimesCircle, FaStickyNote,
+  FaLock, FaUnlock, FaCopy, FaUsers, FaPenNib, FaGlobe, FaHistory,
 } from 'react-icons/fa';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -104,6 +115,13 @@ const blobToBase64 = (blob) =>
     reader.onerror = reject;
     reader.readAsDataURL(blob);
   });
+
+// Works for ObjectId strings and populated docs alike.
+const idOf = (v) => {
+  if (!v) return null;
+  const raw = typeof v === 'object' ? (v._id || v.id) : v;
+  return raw ? String(raw) : null;
+};
 
 // ─── COLOR HELPERS ───────────────────────────────────────────────
 const parseColor = (str) => {
@@ -630,21 +648,6 @@ const CustomTableCell = TableCell.extend({ addAttributes() { return { ...(this.p
 const CustomTableHeader = TableHeader.extend({ addAttributes() { return { ...(this.parent?.() || {}), ...cellExtraAttributes() }; } });
 
 // ─── CALLOUT NODE ─────────────────────────────────────────────────────
-//
-// setCallout / unsetCallout are custom (not using wrapIn / lift) because
-// the built-in helpers don't behave well with a `block+` container that
-// also has `isolating: true`:
-//
-//   • wrapIn targets the deepest block-level ancestor of the selection.
-//     Inside a list that's a `listItem`, which is *not* a valid child of a
-//     callout — so wrapping silently failed. We now wrap at depth 1
-//     (top-level blocks), so a list, table, heading, or run of paragraphs
-//     all wrap cleanly.
-//
-//   • lift had trouble finding a lift target under `isolating`. We now
-//     just swap the callout node for its own content, which always works
-//     and lifts the children up one level.
-//
 const Callout = Node.create({
   name: 'callout',
   group: 'block',
@@ -692,15 +695,11 @@ const Callout = Node.create({
         ({ state, dispatch }) => {
           const calloutType = state.schema.nodes.callout;
           if (!calloutType) return false;
-
           if (findCalloutDepth(state) !== -1) return false;
-
           const range = topLevelRange(state);
           if (!range) return false;
-
           const calloutNode = calloutType.create(attrs, range.slice.content);
           const tr = state.tr.replaceWith(range.startPos, range.endPos, calloutNode);
-
           if (dispatch) dispatch(tr.scrollIntoView());
           return true;
         },
@@ -710,21 +709,13 @@ const Callout = Node.create({
         ({ state, dispatch }) => {
           const calloutType = state.schema.nodes.callout;
           if (!calloutType) return false;
-
           const calloutDepth = findCalloutDepth(state);
           if (calloutDepth === -1) return false;
-
           const $from = state.selection.$from;
           const calloutPos = $from.before(calloutDepth);
           const calloutNode = $from.node(calloutDepth);
           const calloutEnd = calloutPos + calloutNode.nodeSize;
-
-          const tr = state.tr.replaceWith(
-            calloutPos,
-            calloutEnd,
-            calloutNode.content
-          );
-
+          const tr = state.tr.replaceWith(calloutPos, calloutEnd, calloutNode.content);
           if (dispatch) dispatch(tr.scrollIntoView());
           return true;
         },
@@ -734,30 +725,20 @@ const Callout = Node.create({
         ({ state, dispatch }) => {
           const calloutType = state.schema.nodes.callout;
           if (!calloutType) return false;
-
           const calloutDepth = findCalloutDepth(state);
-
           if (calloutDepth !== -1) {
             const $from = state.selection.$from;
             const calloutPos = $from.before(calloutDepth);
             const calloutNode = $from.node(calloutDepth);
             const calloutEnd = calloutPos + calloutNode.nodeSize;
-
-            const tr = state.tr.replaceWith(
-              calloutPos,
-              calloutEnd,
-              calloutNode.content
-            );
+            const tr = state.tr.replaceWith(calloutPos, calloutEnd, calloutNode.content);
             if (dispatch) dispatch(tr.scrollIntoView());
             return true;
           }
-
           const range = topLevelRange(state);
           if (!range) return false;
-
           const calloutNode = calloutType.create(attrs, range.slice.content);
           const tr = state.tr.replaceWith(range.startPos, range.endPos, calloutNode);
-
           if (dispatch) dispatch(tr.scrollIntoView());
           return true;
         },
@@ -1648,7 +1629,7 @@ const EditorToolbar = ({ editor, isMobile, onOpenTableSettings }) => {
 const EDITOR_CONTENT_CLASSES = 'note-content outline-none';
 const NOTE_BODY_CLASSES = 'note-rich text-gray-800 dark:text-gray-100';
 
-const NoteEditor = ({ initialContent, isMobile, keyboardOffset, onChange, onSelectionChange, onEditorReady }) => {
+const NoteEditor = ({ initialContent, isMobile, keyboardOffset, onChange, onSelectionChange, onEditorReady, editable = true }) => {
   const [hoverCell, setHoverCell] = useState(null);
   const [tablePanelOpen, setTablePanelOpen] = useState(false);
   const hideTimerRef = useRef(null);
@@ -1656,6 +1637,7 @@ const NoteEditor = ({ initialContent, isMobile, keyboardOffset, onChange, onSele
 
   const editor = useEditor({
     shouldRerenderOnTransaction: true,
+    editable,
     extensions: [
       StarterKit.configure({
         heading: { levels: [1, 2, 3] },
@@ -1692,6 +1674,7 @@ const NoteEditor = ({ initialContent, isMobile, keyboardOffset, onChange, onSele
     },
   });
 
+  useEffect(() => { if (editor) editor.setEditable(editable); }, [editable, editor]);
   useEffect(() => { if (editor) onEditorReady?.(editor); }, [editor, onEditorReady]);
   useEffect(() => () => editor?.destroy(), [editor]);
   useEffect(() => () => { if (hideTimerRef.current) clearTimeout(hideTimerRef.current); }, []);
@@ -1757,6 +1740,155 @@ const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message }) => {
   );
 };
 
+// ─── SHARE & HISTORY MODAL ──────────────────────────────────────────
+const HISTORY_ACTION_LABELS = {
+  created: 'created this note',
+  imported: 'imported this note',
+  moved: 'moved this note',
+  'color-changed': 'changed the note color',
+  'visibility-changed': 'changed who can view this note',
+};
+const describeHistory = (item) => {
+  if (item.action === 'updated') {
+    const changes = Array.isArray(item.changes) ? item.changes.filter(Boolean) : [];
+    return changes.length ? `updated the ${changes.join(', ')}` : 'updated this note';
+  }
+  return HISTORY_ACTION_LABELS[item.action] || item.action || 'made a change';
+};
+
+const ShareModal = ({
+  isOpen, onClose, note, shareUrl, isPublic, canManage,
+  onSetVisibility, busy, onCopyShareLink, brandColor,
+}) => {
+  const [tab, setTab] = useState('share');
+  useEffect(() => { if (isOpen) setTab('share'); }, [isOpen]);
+  if (!isOpen || !note) return null;
+
+  const history = [...(note.history || [])].reverse();
+  const visibilityOptions = [
+    { value: 'workspace', icon: FaLock, title: 'Workspace only', desc: 'Only active members of this workspace can open this note.' },
+    { value: 'public', icon: FaGlobe, title: 'Public', desc: 'Anyone with the link can view it — no login needed.' },
+  ];
+  const current = isPublic ? 'public' : 'workspace';
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-end md:items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-gray-700 rounded-t-2xl md:rounded-2xl w-full md:max-w-lg max-h-[92vh] overflow-hidden flex flex-col shadow-2xl">
+        <div className="shrink-0 flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-800">
+          <div className="min-w-0">
+            <h2 className="text-base font-semibold text-gray-800 dark:text-white flex items-center gap-2">
+              <FaUsers style={{ color: brandColor }} /> Share note
+            </h2>
+            <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate mt-0.5">{note.title || 'Untitled note'}</p>
+          </div>
+          <button type="button" onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-white rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition shrink-0">
+            <FaTimes className="text-sm" />
+          </button>
+        </div>
+
+        <div className="flex border-b border-gray-200 dark:border-gray-800 px-5 flex-shrink-0 bg-gray-50/50 dark:bg-[#0f0f12]/30">
+          {[{ id: 'share', label: 'Sharing' }, { id: 'history', label: 'Edit history' }].map((t) => (
+            <button key={t.id} onClick={() => setTab(t.id)}
+              className={`py-3 px-1 mr-6 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${tab === t.id ? 'text-teal-600 dark:text-teal-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}
+              style={tab === t.id ? { borderColor: brandColor, color: brandColor } : undefined}>
+              {t.label}
+              {t.id === 'history' && history.length > 0 && (
+                <span className="bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[10px] px-1.5 py-0.5 rounded-full">{history.length}</span>
+              )}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+          {tab === 'share' ? (
+            <>
+              <section>
+                <h3 className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-2">Who can view</h3>
+                <div className="space-y-2">
+                  {visibilityOptions.map((o) => {
+                    const Icon = o.icon;
+                    const selected = current === o.value;
+                    return (
+                      <button key={o.value} type="button" disabled={!canManage || busy} onClick={() => { if (!selected) onSetVisibility(o.value); }}
+                        className={`w-full text-left flex items-start gap-3 p-3 rounded-xl border transition disabled:cursor-not-allowed ${selected ? 'bg-teal-50/60 dark:bg-teal-900/10' : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'} ${!canManage && !selected ? 'opacity-60' : ''}`}
+                        style={selected ? { borderColor: brandColor } : undefined}>
+                        <span className="w-8 h-8 rounded-lg bg-gray-100 dark:bg-gray-800 flex items-center justify-center flex-shrink-0" style={selected ? { color: brandColor } : undefined}>
+                          <Icon className="text-xs" />
+                        </span>
+                        <span className="flex-1 min-w-0">
+                          <span className="block text-sm font-medium text-gray-800 dark:text-white">{o.title}</span>
+                          <span className="block text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">{o.desc}</span>
+                        </span>
+                        {busy && !selected ? <FaSpinner className="animate-spin text-xs text-gray-400 mt-1" /> : selected ? <FaCheck className="text-xs mt-1" style={{ color: brandColor }} /> : null}
+                      </button>
+                    );
+                  })}
+                </div>
+                {!canManage && (
+                  <p className="mt-2 text-[10px] text-gray-500 dark:text-gray-400">Only the note author or a workspace admin can change this.</p>
+                )}
+              </section>
+
+              <section>
+                <h3 className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-2">Share link</h3>
+                <div className="flex items-center gap-2 bg-gray-50 dark:bg-[#0f0f12] border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2">
+                  <FaLink className="text-gray-400 text-xs shrink-0" />
+                  <span className="flex-1 truncate text-xs text-gray-600 dark:text-gray-400 font-mono">{shareUrl}</span>
+                  <button type="button" onClick={onCopyShareLink} className="p-1 text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-900/20 rounded transition shrink-0" title="Copy link">
+                    <FaCopy className="text-[11px]" />
+                  </button>
+                </div>
+                <p className="mt-1.5 text-[10px] text-gray-500 dark:text-gray-400 leading-relaxed">
+                  {isPublic
+                    ? 'This note is public — anyone with the link can view it.'
+                    : 'This note is private to the workspace. People outside it will see "Note unavailable" until you make it public.'}
+                </p>
+              </section>
+            </>
+          ) : history.length === 0 ? (
+            <div className="text-center py-8 border border-dashed border-gray-300 dark:border-gray-700 rounded-xl">
+              <FaHistory className="text-2xl text-gray-300 dark:text-gray-600 mx-auto mb-2" />
+              <p className="text-sm font-medium text-gray-700 dark:text-gray-300">No history yet</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Changes will appear here as people edit the note.</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {history.map((item, i) => {
+                const u = item.user || {};
+                const name = u.name || u.email || 'Someone';
+                const initial = String(name).charAt(0).toUpperCase();
+                return (
+                  <div key={item._id || i} className="flex gap-3 relative">
+                    {i !== history.length - 1 && <div className="absolute left-[15px] top-8 bottom-[-16px] w-0.5 bg-gray-100 dark:bg-gray-800" />}
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 z-10 text-xs font-semibold ${i === 0 ? 'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300' : 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400'}`}>
+                      {initial}
+                    </div>
+                    <div className="flex-1 min-w-0 pt-1">
+                      <p className="text-sm text-gray-800 dark:text-gray-200">
+                        <span className="font-medium">{name}</span>{' '}
+                        <span className="text-gray-500 dark:text-gray-400">{describeHistory(item)}</span>
+                      </p>
+                      {item.at && (
+                        <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">{formatDistanceToNow(new Date(item.at), { addSuffix: true })}</p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="shrink-0 flex gap-2 px-5 py-3 border-t border-gray-200 dark:border-gray-800">
+          <button type="button" onClick={onClose} className="flex-1 py-2.5 text-white rounded-xl text-sm font-medium hover:opacity-90 transition" style={{ backgroundColor: brandColor }}>
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ─── SIDEBAR NOTE ITEM ─────────────────────────────────────────────
 const SidebarNoteItem = ({ note, isActive, onClick, brandColor }) => {
   const preview = stripHtml(note.content || '').slice(0, 60);
@@ -1768,18 +1900,14 @@ const SidebarNoteItem = ({ note, isActive, onClick, brandColor }) => {
       className={`px-3 py-2.5 border-b border-gray-100 dark:border-gray-800 cursor-pointer transition ${
         isActive ? '' : 'hover:bg-gray-50 dark:hover:bg-[#1e1e1e]'
       }`}
-      style={
-        isActive
-          ? {
-              backgroundColor: `${brandColor}1a`,
-              borderLeft: `4px solid ${brandColor}`,
-            }
-          : undefined
-      }
+      style={isActive ? { backgroundColor: `${brandColor}1a`, borderLeft: `4px solid ${brandColor}` } : undefined}
     >
       <div className="flex items-center gap-2">
         <FaFileAlt className="text-sm flex-shrink-0" style={{ color: brandColor }} />
         <span className="text-sm font-medium text-gray-800 dark:text-white truncate flex-1">{note.title || 'Untitled'}</span>
+        {note.visibility === 'public' && (
+          <span className="text-[10px] bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-1.5 py-0.5 rounded-full flex-shrink-0">Public</span>
+        )}
         {note.folder?.name && (
           <span className="text-[10px] text-gray-500 dark:text-gray-400 truncate max-w-[70px]">{note.folder.name}</span>
         )}
@@ -2274,7 +2402,9 @@ const AiActionsMenu = ({ disabled, busy, onProofread, onComplete, onRewrite }) =
   );
 };
 
-const SmallScreenActions = ({ onExportPDF, onDelete }) => {
+const SmallScreenActions = ({
+  canManage, isPublic, onOpenShare, onCopyShareLink, onToggleVisibility, onExportPDF, onDelete,
+}) => {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   useEffect(() => {
@@ -2283,24 +2413,170 @@ const SmallScreenActions = ({ onExportPDF, onDelete }) => {
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [open]);
+  const itemCls = 'w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left hover:bg-gray-100 dark:hover:bg-gray-800 transition text-xs text-gray-700 dark:text-gray-300';
   return (
     <div className="relative sm:hidden" ref={ref}>
       <button type="button" onClick={() => setOpen((v) => !v)} className="p-2 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition" title="More actions">
         <FaEllipsisV className="text-sm" />
       </button>
       {open && (
-        <div className="absolute right-0 top-full mt-1 z-50 bg-white dark:bg-[#1c1c1f] border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl p-1.5 min-w-[180px]">
-          <button type="button" onClick={() => { setOpen(false); onExportPDF(); }} className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left hover:bg-gray-100 dark:hover:bg-gray-800 transition text-xs text-gray-700 dark:text-gray-300">
+        <div className="absolute right-0 top-full mt-1 z-50 bg-white dark:bg-[#1c1c1f] border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl p-1.5 min-w-[200px]">
+          <button type="button" onClick={() => { setOpen(false); onOpenShare(); }} className={itemCls}>
+            <FaUsers className="text-xs" /> Share & history
+          </button>
+          {canManage && (
+            <button type="button" onClick={() => { setOpen(false); onToggleVisibility(); }} className={itemCls}>
+              {isPublic ? <FaLock className="text-xs" /> : <FaGlobe className="text-xs" />}
+              {isPublic ? 'Make private' : 'Make public'}
+            </button>
+          )}
+          {isPublic && (
+            <button type="button" onClick={() => { setOpen(false); onCopyShareLink(); }} className={itemCls}>
+              <FaCopy className="text-xs" /> Copy share link
+            </button>
+          )}
+          <button type="button" onClick={() => { setOpen(false); onExportPDF(); }} className={itemCls}>
             <FaFilePdf className="text-xs" /> Export as PDF
           </button>
-          <button type="button" onClick={() => { setOpen(false); onDelete(); }} className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left hover:bg-red-50 dark:hover:bg-red-900/20 transition text-xs text-red-600">
-            <FaTrashAlt className="text-xs" /> Delete note
-          </button>
+          {canManage && (
+            <button type="button" onClick={() => { setOpen(false); onDelete(); }} className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left hover:bg-red-50 dark:hover:bg-red-900/20 transition text-xs text-red-600">
+              <FaTrashAlt className="text-xs" /> Delete note
+            </button>
+          )}
         </div>
       )}
     </div>
   );
 };
+
+// ═════════════════════════════════════════════════════════════════════
+//  VIEWER SIDEBAR  (guests + logged-in people outside the workspace)
+// ═════════════════════════════════════════════════════════════════════
+const ViewerSidebar = ({ isGuest, authorName }) => {
+  const features = [
+    { icon: FaUsers, title: 'Workspaces for teams', desc: 'Notes, tasks and projects in one shared place.' },
+    { icon: FaPenNib, title: 'Rich, beautiful editor', desc: 'Tables, callouts, images, colors — everything you need.' },
+    { icon: FaMagic, title: 'AI writing companion', desc: 'Proofread, expand and rewrite with one click.' },
+    { icon: FaBookOpen, title: 'Instant scripture lookup', desc: 'Bible passages embedded in your notes in seconds.' },
+    { icon: FaFilePdf, title: 'Print-ready PDFs', desc: 'Export any note as a polished, styled PDF.' },
+  ];
+  return (
+    <div className="h-full w-full flex flex-col overflow-hidden bg-white dark:bg-[#131316] border-r border-gray-200 dark:border-gray-800">
+      <div className="px-6 pt-8 pb-4 flex-shrink-0 border-b border-gray-100 dark:border-gray-800/60">
+        <img src="/logo.jpeg" alt="Xircle" className="w-12 h-12 rounded-xl object-cover shadow-sm mb-5 border border-gray-100 dark:border-gray-800" />
+        <h2 className="text-xl font-semibold text-gray-900 dark:text-white tracking-tight">{isGuest ? 'About Xircle' : 'Shared with you'}</h2>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mt-2 leading-relaxed">
+          {authorName ? `Shared by ${authorName} from a Xircle workspace.` : 'Shared from a Xircle workspace.'}
+        </p>
+      </div>
+
+      <div className="px-6 py-5 space-y-3 flex-shrink-0 bg-gray-50/50 dark:bg-[#0f0f12]/50">
+        {isGuest ? (
+          <p className="text-xs text-gray-500 dark:text-gray-400 text-center">
+            Tap <span className="font-semibold text-teal-600 dark:text-teal-400">Edit</span> above to try it
+          </p>
+        ) : (
+          <Link to="/my-workspaces" className="w-full py-2.5 border border-gray-300 dark:border-gray-700 rounded-lg text-sm font-medium text-center block text-gray-700 dark:text-gray-300 hover:bg-white dark:hover:bg-gray-800 transition">
+            Go to my workspaces
+          </Link>
+        )}
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-6 py-5">
+        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-4">What you get on Xircle</h3>
+        <div className="space-y-4">
+          {features.map((f, i) => {
+            const Icon = f.icon;
+            return (
+              <div key={i} className="flex items-start gap-3">
+                <div className="w-6 h-6 rounded-md bg-gray-100 dark:bg-gray-800 flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <Icon className="text-gray-600 dark:text-gray-400 text-[10px]" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-gray-800 dark:text-gray-200 leading-tight">{f.title}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed mt-1">{f.desc}</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="px-6 py-4 border-t border-gray-100 dark:border-gray-800 flex-shrink-0">
+        <p className="text-[11px] text-gray-400 dark:text-gray-500 text-center flex items-center justify-center gap-1.5">
+          <img src="/logo.jpeg" alt="Xircle" className="w-4 h-4 rounded object-cover opacity-60 grayscale" />
+          Powered by <span className="font-semibold text-gray-600 dark:text-gray-300">Xircle</span>
+        </p>
+      </div>
+    </div>
+  );
+};
+
+// ═════════════════════════════════════════════════════════════════════
+//  GUEST ENGAGEMENT MODAL
+// ═════════════════════════════════════════════════════════════════════
+const GuestWelcomeModal = ({ open, onClose, onLogIn }) => {
+  if (!open) return null;
+  const features = [
+    { icon: FaUsers, text: 'Collaborate with your team in workspaces' },
+    { icon: FaMagic, text: 'AI-powered proofreading & rewriting' },
+    { icon: FaBookOpen, text: 'Instant Bible & Quran lookup' },
+    { icon: FaFilePdf, text: 'Beautiful PDF exports' },
+  ];
+  return (
+    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl max-w-md w-full overflow-hidden shadow-2xl border border-gray-200 dark:border-gray-800">
+        <div className="relative px-8 pt-8 pb-6 text-center border-b border-gray-100 dark:border-gray-800">
+          <button type="button" onClick={onClose} className="absolute top-4 right-4 p-2 rounded-full text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition" title="Close">
+            <FaTimes className="text-sm" />
+          </button>
+          <img src="/logo.jpeg" alt="Xircle" className="w-16 h-16 rounded-2xl object-cover mx-auto mb-4 shadow-sm border border-gray-100 dark:border-gray-800" />
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-white tracking-tight">Log in to edit</h2>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">Create notes and unlock AI writing on Xircle.</p>
+        </div>
+        <div className="px-8 py-6">
+          <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed text-center">This note belongs to a workspace. Log in to join in and save your own notes.</p>
+          <div className="space-y-3 mt-6">
+            {features.map((f, i) => {
+              const Icon = f.icon;
+              return (
+                <div key={i} className="flex items-center gap-3 text-sm text-gray-700 dark:text-gray-300">
+                  <div className="w-8 h-8 rounded-lg bg-gray-50 dark:bg-gray-800 flex items-center justify-center flex-shrink-0"><Icon className="text-teal-600 dark:text-teal-400 text-xs" /></div>
+                  {f.text}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        <div className="px-8 pb-8 pt-2 space-y-2">
+          <button type="button" onClick={onLogIn} className="w-full py-2.5 bg-teal-600 text-white rounded-lg text-sm font-medium text-center block hover:bg-teal-700 transition shadow-sm">Log in to continue</button>
+          <button type="button" onClick={onClose} className="w-full py-3 text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-teal-600 dark:hover:text-teal-400 transition">Keep viewing</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ═════════════════════════════════════════════════════════════════════
+//  ACCESS DENIED SCREEN
+// ═════════════════════════════════════════════════════════════════════
+const AccessDeniedScreen = ({ isGuest, workspaceId }) => (
+  <div className="flex flex-col items-center justify-center h-screen w-full bg-gray-50 dark:bg-[#0f0f12] p-6 text-center">
+    <div className="w-16 h-16 rounded-2xl bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-gray-800 shadow-sm flex items-center justify-center mb-6">
+      <FaLock className="text-2xl text-gray-400" />
+    </div>
+    <h1 className="text-xl font-semibold text-gray-900 dark:text-white mb-2 tracking-tight">Note unavailable</h1>
+    <p className="text-sm text-gray-500 dark:text-gray-400 mb-8 max-w-md">This note is private to its workspace, or it doesn't exist.</p>
+    {isGuest ? (
+      <div className="flex flex-col sm:flex-row gap-3">
+        <Link to="/login" className="px-6 py-2.5 bg-teal-600 text-white rounded-lg font-medium hover:bg-teal-700 transition">Log in to Xircle</Link>
+        <Link to="/signup" className="px-6 py-2.5 border border-gray-300 dark:border-gray-700 rounded-lg font-medium text-gray-700 dark:text-gray-300 hover:bg-white dark:hover:bg-gray-800 transition">Create account</Link>
+      </div>
+    ) : (
+      <Link to={workspaceId ? '/my-workspaces' : '/'} className="px-6 py-2.5 bg-teal-600 text-white rounded-lg font-medium hover:bg-teal-700 transition">Go to my workspaces</Link>
+    )}
+  </div>
+);
 
 // ═════════════════════════════════════════════════════════════════════
 //  MAIN COMPONENT
@@ -2320,16 +2596,21 @@ const WorkspaceWriteNote = () => {
   const location = useLocation();
   const user = useSelector((state) => state.auth?.userInfo);
 
-  const canUseAi = Boolean(user?.isAiEnabled);
-  const canUseBible = Boolean(user?.isBibleEnabled);
-  const canUseQuran = Boolean(user?.isQuranEnabled);
+  const isGuest = !user;
+  const myId = user?._id ? String(user._id) : null;
+
+  const canUseAi = Boolean(user?.isAiEnabled) && !isGuest;
+  const canUseBible = Boolean(user?.isBibleEnabled) && !isGuest;
+  const canUseQuran = Boolean(user?.isQuranEnabled) && !isGuest;
   const canUseScripture = canUseBible || canUseQuran;
   const canUseAskAi = canUseAi || canUseScripture;
 
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
-  const [isEditing, setIsEditing] = useState(Boolean(location.state?.justCreated));
+  const [isEditing, setIsEditing] = useState(!isGuest && Boolean(location.state?.justCreated));
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [togglingVisibility, setTogglingVisibility] = useState(false);
   const [saveStatus, setSaveStatus] = useState('idle');
   const [lastSaved, setLastSaved] = useState(null);
   const [sidebarWidth, setSidebarWidth] = useState(280);
@@ -2343,6 +2624,10 @@ const WorkspaceWriteNote = () => {
   );
   const [keyboardOffset, setKeyboardOffset] = useState(0);
 
+  // Guest UX
+  const [showGuestModal, setShowGuestModal] = useState(false);
+  const [guestEditing, setGuestEditing] = useState(false);
+
   const [aiSelection, setAiSelection] = useState(null);
   const [aiPanel, setAiPanel] = useState(null);
   const [aiPreview, setAiPreview] = useState(null);
@@ -2351,19 +2636,45 @@ const WorkspaceWriteNote = () => {
   const [showBiblePicker, setShowBiblePicker] = useState(false);
   const [showRewriteSetup, setShowRewriteSetup] = useState(false);
 
-  const { data: wsData, isLoading: isWsLoading, error: wsError } =
-    useGetWorkspaceQuery(workspaceId, { skip: !workspaceId });
+  // Workspace is only fetched for logged-in users. Non-members simply get an
+  // error here, which is fine — they fall back to viewer mode for public notes.
+  const { data: wsData, isLoading: isWsLoading } =
+    useGetWorkspaceQuery(workspaceId, { skip: !workspaceId || isGuest });
 
-  const { data: noteData, isLoading: isFetching, error: noteError } =
-    useGetWorkspaceNoteQuery(noteId, { skip: !noteId || !workspaceId });
+  // The note endpoint uses optionalAuth, so it also works for guests.
+  const {
+    data: noteData,
+    isLoading: isFetching,
+    isError: isNoteError,
+    error: noteError,
+    refetch: refetchNote,
+  } = useGetWorkspaceNoteQuery(noteId, { skip: !noteId || !workspaceId });
+
+  const workspace = wsData?.workspace;
+  const note = noteData?.note;
+  const brandColor = workspace?.color || '#0d9488';
+
+  // ── Role computation ──
+  const isMember = !isGuest && Boolean(workspace);
+  const isWsOwner = Boolean(myId && idOf(workspace?.owner) === myId);
+  const myMemberEntry = workspace?.members?.find((m) => idOf(m.user) === myId);
+  const isWsAdmin = isWsOwner || (myMemberEntry?.role === 'Admin' && myMemberEntry?.status === 'active');
+  const isAuthor = Boolean(myId && note && idOf(note.author) === myId);
+  // Mirrors server-side canManageNote: author OR workspace Admin/Owner.
+  const canManage = isMember && (isAuthor || isWsAdmin);
+  const isPublic = note?.visibility === 'public';
+  const authorName = note?.author?.name || null;
+  const showViewerSidebar = Boolean(note) && !isMember;
 
   const { data: notesData, isLoading: isNotesLoading } = useGetWorkspaceNotesQuery(
     { workspaceId },
-    { skip: !workspaceId }
+    { skip: !workspaceId || !isMember }
   );
+  const notes = notesData?.notes || [];
 
   const [createNote] = useCreateWorkspaceNoteMutation();
   const [updateNote] = useUpdateWorkspaceNoteMutation();
+  const [updateVisibility] = useUpdateWorkspaceNoteVisibilityMutation();
   const [deleteNote] = useDeleteWorkspaceNoteMutation();
 
   const [lookupScripture] = useLookupScriptureMutation();
@@ -2373,9 +2684,11 @@ const WorkspaceWriteNote = () => {
   const [completeNoteApi] = useCompleteNoteMutation();
   const [rewriteNoteApi] = useRewriteNoteMutation();
 
-  const workspace = wsData?.workspace;
-  const brandColor = workspace?.color || '#0d9488';
-  const notes = notesData?.notes || [];
+  const effectiveIsEditing = isEditing && canManage;
+  const shareUrl =
+    workspaceId && noteId && typeof window !== 'undefined'
+      ? `${window.location.origin}/workspace/${workspaceId}/notes/${noteId}`
+      : '';
 
   const loadedNoteRef = useRef(null);
   const currentNoteIdRef = useRef(noteId || null);
@@ -2388,17 +2701,13 @@ const WorkspaceWriteNote = () => {
 
   useEffect(() => {
     if (!workspaceId) {
-      navigate('/my-workspaces', { replace: true });
+      navigate(isGuest ? '/login' : '/my-workspaces', { replace: true });
       return;
     }
     if (!noteId) {
       navigate(`/workspace/${workspaceId}/notes`, { replace: true });
     }
-  }, [workspaceId, noteId, navigate]);
-
-  useEffect(() => {
-    if (wsError) navigate('/my-workspaces', { replace: true });
-  }, [wsError, navigate]);
+  }, [workspaceId, noteId, navigate, isGuest]);
 
   useEffect(() => {
     const handleResize = () => setIsMobile(window.innerWidth < MOBILE_BREAKPOINT);
@@ -2432,11 +2741,15 @@ const WorkspaceWriteNote = () => {
     return () => window.removeEventListener('scroll', clear, true);
   }, [aiSelection]);
 
-  const startResize = useCallback((e) => { e.preventDefault(); setIsResizing(true); }, []);
+  const startResize = useCallback((e) => {
+    if (showViewerSidebar) return;
+    e.preventDefault();
+    setIsResizing(true);
+  }, [showViewerSidebar]);
 
   useEffect(() => {
     const onMouseMove = (e) => {
-      if (!isResizing) return;
+      if (!isResizing || !sidebarRef.current) return;
       const newWidth = e.clientX - sidebarRef.current.getBoundingClientRect().left;
       if (newWidth > 150 && newWidth < 500) setSidebarWidth(newWidth);
     };
@@ -2452,7 +2765,7 @@ const WorkspaceWriteNote = () => {
   }, [isResizing]);
 
   const handleCreateNote = useCallback(async () => {
-    if (isCreatingRef.current || !workspaceId) return;
+    if (isCreatingRef.current || !workspaceId || !isMember) return;
     isCreatingRef.current = true;
     setIsCreatingNote(true);
     try {
@@ -2469,16 +2782,19 @@ const WorkspaceWriteNote = () => {
       isCreatingRef.current = false;
       setIsCreatingNote(false);
     }
-  }, [createNote, navigate, workspaceId]);
+  }, [createNote, navigate, workspaceId, isMember]);
 
   useEffect(() => {
-    setIsEditing(Boolean(location.state?.justCreated));
+    setIsEditing(!isGuest && Boolean(location.state?.justCreated));
     currentNoteIdRef.current = noteId || null;
     setAiSelection(null);
     setAiPanel(null);
     setAiPreview(null);
     setShowBiblePicker(false);
     setShowRewriteSetup(false);
+    setShowShareModal(false);
+    setGuestEditing(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [noteId]);
 
   useEffect(() => {
@@ -2499,9 +2815,10 @@ const WorkspaceWriteNote = () => {
   }, [noteData, noteId]);
 
   const persist = useCallback(async () => {
-    if (!currentNoteIdRef.current) return;
+    if (!currentNoteIdRef.current || !canManage) return;
     setSaveStatus('saving');
     try {
+      // Visibility is NOT part of autosave — it has its own endpoint.
       const payload = { title: (title || 'Untitled').trim(), content: content || '' };
       await updateNote({ noteId: currentNoteIdRef.current, data: payload }).unwrap();
       setLastSaved(new Date());
@@ -2510,25 +2827,25 @@ const WorkspaceWriteNote = () => {
       setSaveStatus('error');
       toast.error(err?.data?.message || 'Failed to save note');
     }
-  }, [title, content, updateNote]);
+  }, [title, content, updateNote, canManage]);
 
   useEffect(() => {
     if (suppressAutosaveRef.current) { suppressAutosaveRef.current = false; return; }
-    if (!isEditing) return;
+    if (!effectiveIsEditing) return;
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => { persist(); }, AUTOSAVE_DELAY);
     return () => clearTimeout(debounceRef.current);
-  }, [title, content, isEditing, persist]);
+  }, [title, content, effectiveIsEditing, persist]);
 
   const handleDoneEditing = () => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    persist();
+    if (canManage) persist();
     setIsEditing(false);
     setAiSelection(null);
   };
 
   const handleDelete = async () => {
-    if (!currentNoteIdRef.current) return;
+    if (!currentNoteIdRef.current || !canManage) return;
     try {
       await deleteNote(currentNoteIdRef.current).unwrap();
       toast.success('Note deleted');
@@ -2543,13 +2860,42 @@ const WorkspaceWriteNote = () => {
     navigate(`/workspace/${workspaceId}/notes/${id}`);
   };
 
+  // ── Visibility / sharing ──
+  const handleSetVisibility = async (next) => {
+    if (!canManage || !noteId || togglingVisibility) return;
+    setTogglingVisibility(true);
+    try {
+      await updateVisibility({ noteId, visibility: next }).unwrap();
+      toast.success(
+        next === 'public'
+          ? 'Note is now public — anyone with the link can view it'
+          : 'Note is now private to the workspace'
+      );
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to update visibility');
+    } finally {
+      setTogglingVisibility(false);
+    }
+  };
+
+  const handleToggleVisibility = () => handleSetVisibility(isPublic ? 'workspace' : 'public');
+
+  const handleCopyShareLink = () => {
+    if (!shareUrl) return;
+    navigator.clipboard?.writeText(shareUrl)
+      .then(() => toast.success('Link copied to clipboard'))
+      .catch(() => toast.error('Failed to copy link'));
+  };
+
   const handleExportPDF = async () => {
-    if (!currentNoteIdRef.current) return;
+    if (!note) return;
     const liveHtml =
-      (editorRef.current && isEditing && editorRef.current.getHTML?.()) || content || '';
+      (editorRef.current && effectiveIsEditing && editorRef.current.getHTML?.()) || content || '';
     const safeName =
       (title || 'Untitled').replace(/[^a-z0-9\-_. ]/gi, '_').trim().slice(0, 80) || 'WorkspaceNote';
-    toast.loading('Generating PDF…', { toastId: 'pdf-export' });
+    const tid = toast.loading('Generating PDF…');
+    const done = (msg, type = 'success') =>
+      toast.update(tid, { render: msg, type, isLoading: false, autoClose: 3000 });
     try {
       const blob = await generatePdfFromNote(title, liveHtml);
       if (!blob) throw new Error('PDF generation returned no data');
@@ -2562,7 +2908,7 @@ const WorkspaceWriteNote = () => {
         link.click();
         document.body.removeChild(link);
         window.URL.revokeObjectURL(url);
-        toast.success('PDF downloaded', { toastId: 'pdf-export' });
+        done('PDF downloaded');
         return;
       }
       const base64 = await blobToBase64(blob);
@@ -2574,21 +2920,22 @@ const WorkspaceWriteNote = () => {
         const Share = shareModule?.Share;
         if (Share && typeof Share.share === 'function') {
           await Share.share({ title: title || 'Note', text: 'Your workspace note PDF', url: writeResult.uri, dialogTitle: 'Share PDF' });
-          toast.success('PDF ready', { toastId: 'pdf-export' });
+          done('PDF ready');
           return;
         }
       } catch (shareErr) {
         const msg = String(shareErr?.message || '');
-        if (/cancel/i.test(msg)) { toast.success('PDF ready', { toastId: 'pdf-export' }); return; }
+        if (/cancel/i.test(msg)) { done('PDF ready'); return; }
       }
-      toast.success('PDF saved', { toastId: 'pdf-export' });
+      done('PDF saved');
     } catch (err) {
       console.error('PDF export failed:', err);
-      toast.error('Failed to export PDF', { toastId: 'pdf-export' });
+      done('Failed to export PDF', 'error');
     }
   };
 
   const handleEditorChange = (html) => {
+    if (!canManage) return;
     suppressAutosaveRef.current = false;
     setContent(html);
     setWordCount(getWordCount(html));
@@ -2596,12 +2943,29 @@ const WorkspaceWriteNote = () => {
   };
 
   const handleSelectionChange = useCallback((info) => {
-    if (!canUseAskAi) return;
+    if (!canUseAskAi || !canManage) return;
     if (aiPanel || aiPreview) return;
     setAiSelection(info);
-  }, [aiPanel, aiPreview, canUseAskAi]);
+  }, [aiPanel, aiPreview, canUseAskAi, canManage]);
 
   const handleEditorReady = useCallback((ed) => { editorRef.current = ed; }, []);
+
+  // ── Guest: any toolbar click in preview mode prompts login ──
+  const handleGuestToolbarClick = useCallback((e) => {
+    if (!isGuest) return;
+    const toolbar = e.target.closest('[data-editor-toolbar]');
+    if (toolbar) {
+      e.preventDefault();
+      e.stopPropagation();
+      setShowGuestModal(true);
+    }
+  }, [isGuest]);
+
+  const handleGuestLogIn = useCallback(() => {
+    setShowGuestModal(false);
+    setGuestEditing(false);
+    navigate('/login', { state: { from: `/workspace/${workspaceId}/notes/${noteId}` } });
+  }, [navigate, workspaceId, noteId]);
 
   const runBibleLookup = useCallback(async ({ book, chapter, verseStart, verseEnd }) => {
     const refString =
@@ -2697,13 +3061,14 @@ const WorkspaceWriteNote = () => {
     }
   };
 
+  const getLiveHtml = () =>
+    (editorRef.current && effectiveIsEditing && editorRef.current.getHTML?.()) || content || '';
+
   const handleProofread = async () => {
-    if (!canUseAi) return;
-    const liveHtml =
-      (editorRef.current && isEditing && editorRef.current.getHTML?.()) || content || '';
+    if (!canUseAi || !canManage) return;
     setAiBusy('proofread');
     try {
-      const { result } = await proofreadNoteApi({ content: liveHtml, title }).unwrap();
+      const { result } = await proofreadNoteApi({ content: getLiveHtml(), title }).unwrap();
       setAiPreview({ kind: 'proofread', result });
     } catch (err) {
       toast.error(err?.data?.message || 'Proofreading failed.');
@@ -2711,12 +3076,10 @@ const WorkspaceWriteNote = () => {
   };
 
   const handleComplete = async () => {
-    if (!canUseAi) return;
-    const liveHtml =
-      (editorRef.current && isEditing && editorRef.current.getHTML?.()) || content || '';
+    if (!canUseAi || !canManage) return;
     setAiBusy('complete');
     try {
-      const { result } = await completeNoteApi({ content: liveHtml, title, style: 'explanatory' }).unwrap();
+      const { result } = await completeNoteApi({ content: getLiveHtml(), title, style: 'explanatory' }).unwrap();
       setAiPreview({ kind: 'complete', result });
     } catch (err) {
       toast.error(err?.data?.message || 'Expansion failed.');
@@ -2724,17 +3087,15 @@ const WorkspaceWriteNote = () => {
   };
 
   const handleOpenRewrite = () => {
-    if (!canUseAi) return;
+    if (!canUseAi || !canManage) return;
     setShowRewriteSetup(true);
   };
 
   const handleRewriteSubmit = async ({ style, length, instructions }) => {
-    if (!canUseAi) return;
-    const liveHtml =
-      (editorRef.current && isEditing && editorRef.current.getHTML?.()) || content || '';
+    if (!canUseAi || !canManage) return;
     setAiBusy('rewrite');
     try {
-      const { result } = await rewriteNoteApi({ content: liveHtml, title, style, length, instructions }).unwrap();
+      const { result } = await rewriteNoteApi({ content: getLiveHtml(), title, style, length, instructions }).unwrap();
       setShowRewriteSetup(false);
       setAiPreview({ kind: 'rewrite', result });
     } catch (err) {
@@ -2743,7 +3104,7 @@ const WorkspaceWriteNote = () => {
   };
 
   const handleApplyAiPreview = async () => {
-    if (!aiPreview || !editorRef.current) return;
+    if (!aiPreview || !editorRef.current || !canManage) return;
     setAiApplying(true);
     try {
       const newContent =
@@ -2768,64 +3129,36 @@ const WorkspaceWriteNote = () => {
   // ═════════════════════════════════════════════════════════════════
   //  EARLY STATES  (all use h-screen so the frame is locked)
   // ═════════════════════════════════════════════════════════════════
-  if (!workspaceId) {
-    return (
-      <div className="flex items-center justify-center h-screen w-full bg-white dark:bg-[#0f0f12]">
-        <FaSpinner className="animate-spin text-teal-500 text-3xl" />
-      </div>
-    );
-  }
+  const spinnerScreen = (
+    <div className="flex items-center justify-center h-screen w-full bg-white dark:bg-[#0f0f12]">
+      <FaSpinner className="animate-spin text-teal-500 text-3xl" />
+    </div>
+  );
 
-  if (isWsLoading) {
-    return (
-      <div className="flex items-center justify-center h-screen w-full bg-white dark:bg-[#0f0f12]">
-        <FaSpinner className="animate-spin text-teal-500 text-3xl" />
-      </div>
-    );
-  }
+  if (!workspaceId || !noteId) return spinnerScreen;
 
-  if (wsError || !workspace) {
+  if (isNoteError) {
+    const status = noteError?.status;
+    if (status === 401 || status === 403 || status === 404) {
+      return <AccessDeniedScreen isGuest={isGuest} workspaceId={workspaceId} />;
+    }
     return (
-      <div className="flex flex-col items-center justify-center h-screen w-full bg-white dark:bg-[#0f0f12] gap-3 p-6 text-center">
-        <p className="text-sm text-gray-600 dark:text-gray-400">
-          We couldn't load this workspace.
-        </p>
-        <button
-          onClick={() => navigate('/my-workspaces', { replace: true })}
-          className="px-4 py-2 rounded-xl bg-teal-600 text-white text-sm font-medium hover:bg-teal-700 transition"
-        >
-          Back to workspaces
+      <div className="flex flex-col items-center justify-center h-screen w-full bg-white dark:bg-[#0f0f12] p-6 text-center">
+        <FaExclamationTriangle className="text-3xl text-amber-500 mb-4" />
+        <h1 className="text-lg font-bold text-gray-800 dark:text-white mb-2">Something went wrong</h1>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-6 max-w-md">Couldn't load this note. Try again.</p>
+        <button onClick={() => refetchNote?.()} className="px-6 py-2.5 bg-teal-600 text-white rounded-xl font-medium hover:bg-teal-700 transition">
+          Try again
         </button>
       </div>
     );
   }
 
-  if (noteError) {
-    return (
-      <div className="flex flex-col items-center justify-center h-screen w-full bg-white dark:bg-[#0f0f12] gap-3 p-6 text-center">
-        <p className="text-sm text-gray-600 dark:text-gray-400">
-          That note couldn't be loaded. It may have been deleted.
-        </p>
-        <button
-          onClick={() => navigate(`/workspace/${workspaceId}/notes`, { replace: true })}
-          className="px-4 py-2 rounded-xl text-white text-sm font-medium transition"
-          style={{ backgroundColor: brandColor }}
-        >
-          Back to notes
-        </button>
-      </div>
-    );
-  }
+  if (isFetching || (!isGuest && (isWsLoading || isNotesLoading))) return spinnerScreen;
 
-  if (!noteId || isFetching || isNotesLoading) {
-    return (
-      <div className="flex items-center justify-center h-screen w-full bg-white dark:bg-[#0f0f12]">
-        <FaSpinner className="animate-spin text-teal-500 text-3xl" />
-      </div>
-    );
-  }
+  if (!note) return <AccessDeniedScreen isGuest={isGuest} workspaceId={workspaceId} />;
 
-  // ── Notes-list sidebar ───────────────────────────────────────────
+  // ── Notes-list sidebar (members only) ────────────────────────────
   const renderNotesSidebar = () => (
     <div
       ref={sidebarRef}
@@ -2862,11 +3195,11 @@ const WorkspaceWriteNote = () => {
             <p className="text-xs">No notes yet</p>
           </div>
         ) : (
-          notes.map((note) => (
+          notes.map((n) => (
             <SidebarNoteItem
-              key={note._id}
-              note={note}
-              isActive={note._id === currentNoteIdRef.current}
+              key={n._id}
+              note={n}
+              isActive={n._id === currentNoteIdRef.current}
               onClick={handleNoteSelect}
               brandColor={brandColor}
             />
@@ -2876,19 +3209,42 @@ const WorkspaceWriteNote = () => {
     </div>
   );
 
+  const renderSidebar = () => {
+    if (showViewerSidebar) {
+      return (
+        <div className="h-full" style={{ width: sidebarWidth }}>
+          <ViewerSidebar isGuest={isGuest} authorName={authorName} />
+        </div>
+      );
+    }
+    return renderNotesSidebar();
+  };
+
   // ── Header ───────────────────────────────────────────────────────
+  const iconBtn = 'p-2 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-teal-500 transition';
+
   const renderHeader = () => (
     <div className="flex-shrink-0 w-full border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-[#0f0f12]">
       <div className="px-3 sm:px-6 py-2 flex flex-wrap items-center gap-2">
-        <button
-          onClick={() => navigate(`/workspace/${workspaceId}/notes`)}
-          className="md:hidden p-2 -ml-1 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition flex-shrink-0"
-          aria-label="Back to notes"
-        >
-          <FaArrowLeft className="text-sm" />
-        </button>
+        {isGuest ? (
+          <Link to="/login" className="p-2 -ml-1 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition flex-shrink-0" title="Log in">
+            <FaArrowLeft className="text-sm" />
+          </Link>
+        ) : isMember ? (
+          <button
+            onClick={() => navigate(`/workspace/${workspaceId}/notes`)}
+            className="md:hidden p-2 -ml-1 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition flex-shrink-0"
+            aria-label="Back to notes"
+          >
+            <FaArrowLeft className="text-sm" />
+          </button>
+        ) : (
+          <Link to="/my-workspaces" className="p-2 -ml-1 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition flex-shrink-0" title="My workspaces">
+            <FaArrowLeft className="text-sm" />
+          </Link>
+        )}
 
-        {isEditing ? (
+        {effectiveIsEditing ? (
           <input
             type="text"
             value={title}
@@ -2902,12 +3258,19 @@ const WorkspaceWriteNote = () => {
             <h1 className="text-lg sm:text-2xl font-bold text-gray-800 dark:text-white truncate">
               {title || 'Untitled Note'}
             </h1>
-            <span
-              className="text-xs px-2.5 py-0.5 rounded-full font-medium flex-shrink-0 hidden xs:inline"
-              style={{ backgroundColor: `${brandColor}1f`, color: brandColor }}
-            >
-              {workspace.name}
-            </span>
+            {isMember && workspace?.name && (
+              <span
+                className="text-xs px-2.5 py-0.5 rounded-full font-medium flex-shrink-0 hidden xs:inline"
+                style={{ backgroundColor: `${brandColor}1f`, color: brandColor }}
+              >
+                {workspace.name}
+              </span>
+            )}
+            {isMember && (
+              <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium flex-shrink-0 hidden xs:inline ${isPublic ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'}`}>
+                {isPublic ? 'Public' : 'Workspace only'}
+              </span>
+            )}
           </div>
         )}
 
@@ -2915,79 +3278,140 @@ const WorkspaceWriteNote = () => {
           {wordCount} words · {charCount} chars
         </span>
 
-        <SaveStatus status={isEditing ? saveStatus : 'idle'} lastSaved={lastSaved} brandColor={brandColor} />
+        {canManage && (
+          <SaveStatus status={effectiveIsEditing ? saveStatus : 'idle'} lastSaved={lastSaved} brandColor={brandColor} />
+        )}
 
         <div className="flex items-center gap-1 flex-shrink-0">
-          <button
-            type="button"
-            onClick={() => navigate('/extensions')}
-            title="Extensions"
-            className="p-2 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-teal-500 transition"
-          >
-            <FaPuzzlePiece className="text-sm" />
-          </button>
+          {/* ── Workspace members ── */}
+          {isMember && (
+            <>
+              <button type="button" onClick={() => navigate('/extensions')} title="Extensions" className={iconBtn}>
+                <FaPuzzlePiece className="text-sm" />
+              </button>
 
-          {canUseBible && (
-            <button
-              type="button"
-              onClick={() => setShowBiblePicker(true)}
-              title="Look up a Bible passage"
-              className="p-2 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-teal-500 transition"
-            >
-              <FaBookOpen className="text-sm" />
+              {canUseBible && (
+                <button type="button" onClick={() => setShowBiblePicker(true)} title="Look up a Bible passage" className={iconBtn}>
+                  <FaBookOpen className="text-sm" />
+                </button>
+              )}
+
+              {effectiveIsEditing && canUseAi && (
+                <AiActionsMenu
+                  disabled={!effectiveIsEditing}
+                  busy={aiBusy}
+                  onProofread={handleProofread}
+                  onComplete={handleComplete}
+                  onRewrite={handleOpenRewrite}
+                />
+              )}
+
+              {canManage && (
+                effectiveIsEditing ? (
+                  <button
+                    onClick={handleDoneEditing}
+                    className="px-3 py-1.5 text-white rounded-xl transition flex items-center gap-1.5 text-xs sm:text-sm font-medium"
+                    style={{ backgroundColor: brandColor }}
+                  >
+                    <FaCheck className="text-xs" />
+                    <span className="hidden xs:inline">Done</span>
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => setIsEditing(true)}
+                    className="px-3 py-1.5 text-white rounded-xl transition flex items-center gap-1.5 text-xs sm:text-sm font-medium"
+                    style={{ backgroundColor: brandColor }}
+                  >
+                    <FaEdit className="text-xs" />
+                    <span className="hidden xs:inline">Edit</span>
+                  </button>
+                )
+              )}
+
+              <button
+                type="button"
+                onClick={() => setShowShareModal(true)}
+                title="Share & history"
+                className="hidden sm:flex px-2.5 py-1.5 rounded-xl text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-teal-500 transition items-center gap-1.5 text-xs font-medium"
+              >
+                <FaUsers className="text-sm" />
+                <span className="hidden md:inline">Share</span>
+              </button>
+
+              {canManage && (
+                <button
+                  onClick={handleToggleVisibility}
+                  disabled={togglingVisibility}
+                  className={`hidden sm:inline-flex p-2 rounded-lg transition disabled:opacity-50 ${isPublic ? 'text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20' : 'text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'}`}
+                  title={isPublic ? 'Public — click to make private' : 'Private — click to make public'}
+                >
+                  {togglingVisibility ? <FaSpinner className="text-sm animate-spin" /> : isPublic ? <FaUnlock className="text-sm" /> : <FaLock className="text-sm" />}
+                </button>
+              )}
+
+              {isPublic && (
+                <button
+                  onClick={handleCopyShareLink}
+                  className="hidden sm:inline-flex p-2 text-gray-400 hover:text-teal-500 transition rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
+                  title="Copy share link"
+                >
+                  <FaCopy className="text-sm" />
+                </button>
+              )}
+
+              <button
+                onClick={handleExportPDF}
+                className="hidden sm:inline-flex p-2 text-gray-400 hover:text-teal-500 transition rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
+                title="Export as PDF"
+              >
+                <FaFilePdf className="text-sm" />
+              </button>
+
+              {canManage && (
+                <button
+                  onClick={() => setShowDeleteModal(true)}
+                  className="hidden sm:inline-flex p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition"
+                  title="Delete note"
+                >
+                  <FaTrashAlt className="text-sm" />
+                </button>
+              )}
+
+              <SmallScreenActions
+                canManage={canManage}
+                isPublic={isPublic}
+                onOpenShare={() => setShowShareModal(true)}
+                onCopyShareLink={handleCopyShareLink}
+                onToggleVisibility={handleToggleVisibility}
+                onExportPDF={handleExportPDF}
+                onDelete={() => setShowDeleteModal(true)}
+              />
+            </>
+          )}
+
+          {/* ── Logged-in, outside the workspace ── */}
+          {!isGuest && !isMember && (
+            <button onClick={handleExportPDF} className="p-2 text-gray-400 hover:text-teal-500 transition rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800" title="Export as PDF">
+              <FaFilePdf className="text-sm" />
             </button>
           )}
 
-          {isEditing && canUseAi && (
-            <AiActionsMenu
-              disabled={!isEditing}
-              busy={aiBusy}
-              onProofread={handleProofread}
-              onComplete={handleComplete}
-              onRewrite={handleOpenRewrite}
-            />
+          {/* ── Guest ── */}
+          {isGuest && (
+            <>
+              <button onClick={handleExportPDF} className="p-2 text-gray-400 hover:text-teal-500 transition rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800" title="Export as PDF">
+                <FaFilePdf className="text-sm" />
+              </button>
+              <button
+                onClick={() => setGuestEditing((v) => !v)}
+                className="ml-1 px-3 sm:px-4 py-1.5 bg-teal-600 text-white rounded-xl hover:bg-teal-700 transition flex items-center gap-1.5 text-xs sm:text-sm font-semibold shadow-sm"
+                title={guestEditing ? 'Exit preview mode' : 'Try the editor'}
+              >
+                <FaEdit className="text-xs" />
+                <span>{guestEditing ? 'Cancel' : 'Edit'}</span>
+              </button>
+            </>
           )}
-
-          {isEditing ? (
-            <button
-              onClick={handleDoneEditing}
-              className="px-3 py-1.5 text-white rounded-xl transition flex items-center gap-1.5 text-xs sm:text-sm font-medium"
-              style={{ backgroundColor: brandColor }}
-            >
-              <FaCheck className="text-xs" />
-              <span className="hidden xs:inline">Done</span>
-            </button>
-          ) : (
-            <button
-              onClick={() => setIsEditing(true)}
-              className="px-3 py-1.5 text-white rounded-xl transition flex items-center gap-1.5 text-xs sm:text-sm font-medium"
-              style={{ backgroundColor: brandColor }}
-            >
-              <FaEdit className="text-xs" />
-              <span className="hidden xs:inline">Edit</span>
-            </button>
-          )}
-
-          <button
-            onClick={handleExportPDF}
-            className="hidden sm:inline-flex p-2 text-gray-400 hover:text-teal-500 transition rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
-            title="Export as PDF"
-          >
-            <FaFilePdf className="text-sm" />
-          </button>
-
-          <button
-            onClick={() => setShowDeleteModal(true)}
-            className="hidden sm:inline-flex p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition"
-            title="Delete note"
-          >
-            <FaTrashAlt className="text-sm" />
-          </button>
-
-          <SmallScreenActions
-            onExportPDF={handleExportPDF}
-            onDelete={() => setShowDeleteModal(true)}
-          />
         </div>
       </div>
     </div>
@@ -2998,19 +3422,46 @@ const WorkspaceWriteNote = () => {
       <div className="flex-1 overflow-y-auto w-full">
         <div
           className="w-full px-3 sm:px-6 py-6"
-          style={isMobile && isEditing ? { paddingBottom: keyboardOffset + MOBILE_TOOLBAR_BASE_GAP } : undefined}
+          style={
+            isMobile && (effectiveIsEditing || (isGuest && guestEditing))
+              ? { paddingBottom: keyboardOffset + MOBILE_TOOLBAR_BASE_GAP }
+              : undefined
+          }
         >
-          {!isEditing && <NoteViewer content={content} />}
-          {isEditing && (
-            <NoteEditor
-              key={editorKey}
-              initialContent={content}
-              isMobile={isMobile}
-              keyboardOffset={keyboardOffset}
-              onChange={handleEditorChange}
-              onSelectionChange={handleSelectionChange}
-              onEditorReady={handleEditorReady}
-            />
+          {isGuest && guestEditing ? (
+            <>
+              <div className="mb-3 px-3 py-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40 rounded-lg text-xs text-amber-800 dark:text-amber-300 flex items-center gap-2">
+                <FaInfoCircle className="flex-shrink-0" />
+                <span>Preview — log in to edit</span>
+              </div>
+              <div onClickCapture={handleGuestToolbarClick}>
+                <NoteEditor
+                  key={`guest-${editorKey}`}
+                  initialContent={content}
+                  isMobile={isMobile}
+                  keyboardOffset={keyboardOffset}
+                  onChange={() => {}}
+                  onSelectionChange={() => {}}
+                  editable={false}
+                />
+              </div>
+            </>
+          ) : (
+            <>
+              {!effectiveIsEditing && <NoteViewer content={content} />}
+              {effectiveIsEditing && (
+                <NoteEditor
+                  key={editorKey}
+                  initialContent={content}
+                  isMobile={isMobile}
+                  keyboardOffset={keyboardOffset}
+                  onChange={handleEditorChange}
+                  onSelectionChange={handleSelectionChange}
+                  onEditorReady={handleEditorReady}
+                  editable={canManage}
+                />
+              )}
+            </>
           )}
         </div>
       </div>
@@ -3023,12 +3474,14 @@ const WorkspaceWriteNote = () => {
       <style>{NOTE_RICH_CSS}</style>
 
       <div className="hidden md:flex flex-shrink-0 h-full relative">
-        {renderNotesSidebar()}
-        <div
-          ref={dragRef}
-          onMouseDown={startResize}
-          className="w-1 cursor-col-resize hover:bg-teal-500/50 transition-colors absolute right-0 top-0 bottom-0 z-10"
-        />
+        {renderSidebar()}
+        {!showViewerSidebar && (
+          <div
+            ref={dragRef}
+            onMouseDown={startResize}
+            className="w-1 cursor-col-resize hover:bg-teal-500/50 transition-colors absolute right-0 top-0 bottom-0 z-10"
+          />
+        )}
       </div>
 
       <div className="flex-1 flex flex-col h-full min-w-0">
@@ -3036,7 +3489,7 @@ const WorkspaceWriteNote = () => {
         {renderEditor()}
       </div>
 
-      {canUseAskAi && (
+      {canUseAskAi && canManage && (
         <AiSelectionPill
           selection={aiSelection}
           isMobile={isMobile}
@@ -3055,7 +3508,7 @@ const WorkspaceWriteNote = () => {
         />
       )}
 
-      {canUseAi && (
+      {canUseAi && canManage && (
         <RewriteSetupModal
           open={showRewriteSetup}
           isMobile={isMobile}
@@ -3065,35 +3518,64 @@ const WorkspaceWriteNote = () => {
         />
       )}
 
-      <AiResultModal
-        open={Boolean(aiPanel)}
-        isMobile={isMobile}
-        loading={Boolean(aiPanel?.loading)}
-        error={aiPanel?.error || null}
-        kind={aiPanel?.kind || null}
-        data={aiPanel?.data || null}
-        expanding={Boolean(aiPanel?.expanding)}
-        onExpand={handleExpandScripture}
-        onClose={() => setAiPanel(null)}
-      />
+      {!isGuest && (
+        <>
+          <AiResultModal
+            open={Boolean(aiPanel)}
+            isMobile={isMobile}
+            loading={Boolean(aiPanel?.loading)}
+            error={aiPanel?.error || null}
+            kind={aiPanel?.kind || null}
+            data={aiPanel?.data || null}
+            expanding={Boolean(aiPanel?.expanding)}
+            onExpand={handleExpandScripture}
+            onClose={() => setAiPanel(null)}
+          />
 
-      <AiPreviewModal
-        open={Boolean(aiPreview)}
-        isMobile={isMobile}
-        kind={aiPreview?.kind}
-        result={aiPreview?.result}
-        applying={aiApplying}
-        onApply={handleApplyAiPreview}
-        onClose={() => setAiPreview(null)}
-      />
+          <AiPreviewModal
+            open={Boolean(aiPreview)}
+            isMobile={isMobile}
+            kind={aiPreview?.kind}
+            result={aiPreview?.result}
+            applying={aiApplying}
+            onApply={handleApplyAiPreview}
+            onClose={() => setAiPreview(null)}
+          />
+        </>
+      )}
 
-      <ConfirmModal
-        isOpen={showDeleteModal}
-        onClose={() => setShowDeleteModal(false)}
-        onConfirm={handleDelete}
-        title="Delete Note"
-        message="This note will be permanently deleted. This action cannot be undone."
-      />
+      {isMember && (
+        <ShareModal
+          isOpen={showShareModal}
+          onClose={() => setShowShareModal(false)}
+          note={note}
+          shareUrl={shareUrl}
+          isPublic={isPublic}
+          canManage={canManage}
+          onSetVisibility={handleSetVisibility}
+          busy={togglingVisibility}
+          onCopyShareLink={handleCopyShareLink}
+          brandColor={brandColor}
+        />
+      )}
+
+      {canManage && (
+        <ConfirmModal
+          isOpen={showDeleteModal}
+          onClose={() => setShowDeleteModal(false)}
+          onConfirm={handleDelete}
+          title="Delete Note"
+          message="This note will be permanently deleted. This action cannot be undone."
+        />
+      )}
+
+      {isGuest && (
+        <GuestWelcomeModal
+          open={showGuestModal}
+          onClose={() => setShowGuestModal(false)}
+          onLogIn={handleGuestLogIn}
+        />
+      )}
     </div>
   );
 };

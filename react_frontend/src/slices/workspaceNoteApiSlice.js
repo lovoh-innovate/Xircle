@@ -3,77 +3,90 @@ import { apiSlice } from './apiSlice';
 
 const WORKSPACE_NOTES_URL = '/workspace-notes';
 
+// ─── Payload helpers ──────────────────────────────────────────────────
+// Normalize whatever the caller passes into a body fetch can send, without
+// ever producing the string "null" / "undefined" for a FormData field.
+const buildBody = (data) => {
+  if (data instanceof FormData) {
+    const clean = new FormData();
+    for (const [key, value] of data.entries()) {
+      // Skip values that were coerced from null/undefined by .append().
+      if (value === 'null' || value === 'undefined') continue;
+      // Skip empty strings for optional-ish fields so the backend sees "absent".
+      // (For title/content this is fine — backend trims and defaults to ''.)
+      clean.append(key, value);
+    }
+    return { body: clean, headers: undefined };
+  }
+
+  // Plain object → JSON. Drop `undefined` (JSON would drop it anyway) but KEEP
+  // `null` — the backend interprets `folderId: null` / `color: null` correctly.
+  const clean = {};
+  Object.entries(data || {}).forEach(([k, v]) => {
+    if (v !== undefined) clean[k] = v;
+  });
+  return { body: clean, headers: { 'Content-Type': 'application/json' } };
+};
+
+// Extract workspaceId from either a plain object or a FormData.
+const workspaceIdOf = (arg) => {
+  if (!arg) return null;
+  if (arg instanceof FormData) return arg.get('workspaceId') || null;
+  return arg.workspaceId || null;
+};
+
 export const workspaceNoteApiSlice = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
     // ═══════════════════════════════════════════════════════════════════
     // CRUD
     // ═══════════════════════════════════════════════════════════════════
 
-    // ─── Create a workspace note ────────────────────────────────────────
-    // Body may include:
-    //   { workspaceId, title?, content?, folderId?, color?, visibility? }
-    // visibility: 'workspace' (default) | 'public'
-    // Drafts allowed — title / content may be empty.
     createWorkspaceNote: builder.mutation({
       query: (data) => {
-        const isFormData = data instanceof FormData;
-        return {
-          url: `${WORKSPACE_NOTES_URL}`,
-          method: 'POST',
-          body: data,
-          headers: isFormData ? undefined : { 'Content-Type': 'application/json' },
-        };
+        const { body, headers } = buildBody(data);
+        return { url: WORKSPACE_NOTES_URL, method: 'POST', body, headers };
       },
-      invalidatesTags: ['WorkspaceNote', 'WorkspaceNoteFolder'],
+      invalidatesTags: (result, error, arg) => {
+        const workspaceId = workspaceIdOf(arg);
+        return [
+          { type: 'WorkspaceNote', id: 'LIST' },
+          ...(workspaceId ? [{ type: 'WorkspaceNote', id: workspaceId }] : []),
+          'WorkspaceNote',
+          'WorkspaceNoteFolder',
+        ];
+      },
     }),
 
-    // ─── Get all notes for a workspace (optionally filtered by folder) ─
-    // Pass either:
-    //   useGetWorkspaceNotesQuery(workspaceId)                 → all notes
-    //   useGetWorkspaceNotesQuery({ workspaceId, folderId })   → filtered
-    //     folderId: '<id>' → notes in that folder
-    //     folderId: 'root' → unfiled only
-    // Notes now include author + lastEditedBy (but NOT full history) —
-    // fetch the single note to render the timeline.
     getWorkspaceNotes: builder.query({
       query: (arg) => {
-        const workspaceId = typeof arg === 'string' ? arg : arg.workspaceId;
-        const folderId = typeof arg === 'string' ? undefined : arg.folderId;
+        const workspaceId = typeof arg === 'string' ? arg : arg?.workspaceId;
+        const folderId = typeof arg === 'string' ? undefined : arg?.folderId;
         return {
           url: `${WORKSPACE_NOTES_URL}/${workspaceId}`,
           params: folderId ? { folderId } : undefined,
         };
       },
       providesTags: (result, error, arg) => {
-        const workspaceId = typeof arg === 'string' ? arg : arg.workspaceId;
+        const workspaceId = typeof arg === 'string' ? arg : arg?.workspaceId;
         const base = [
           { type: 'WorkspaceNote', id: 'LIST' },
           { type: 'WorkspaceNote', id: workspaceId },
         ];
-        return result
-          ? [
-              ...result.notes.map((note) => ({ type: 'WorkspaceNote', id: note._id })),
-              ...base,
-            ]
-          : base;
+        const list = Array.isArray(result?.notes) ? result.notes : [];
+        return [
+          ...list.map((n) => ({ type: 'WorkspaceNote', id: n._id })),
+          ...base,
+        ];
       },
     }),
 
-    // ─── Get a single workspace note (members only) ────────────────────
-    // Returns: note + populated author + lastEditedBy + history + folder.
     getWorkspaceNote: builder.query({
-      query: (noteId) => ({
-        url: `${WORKSPACE_NOTES_URL}/note/${noteId}`,
-      }),
-      providesTags: (result, error, noteId) => [{ type: 'WorkspaceNote', id: noteId }],
+      query: (noteId) => ({ url: `${WORKSPACE_NOTES_URL}/note/${noteId}` }),
+      providesTags: (result, error, noteId) => [
+        { type: 'WorkspaceNote', id: noteId },
+      ],
     }),
 
-    // ─── Get a PUBLIC workspace note (no auth required) ────────────────
-    // Used by the public share page at
-    //   /workspace/:workspaceId/notes/:noteId
-    // Server returns 404 when the note isn't public (or doesn't exist),
-    // so we don't leak the existence of private notes.
-    //   useGetPublicWorkspaceNoteQuery({ workspaceId, noteId })
     getPublicWorkspaceNote: builder.query({
       query: ({ workspaceId, noteId }) => ({
         url: `${WORKSPACE_NOTES_URL}/public/${workspaceId}/${noteId}`,
@@ -84,81 +97,69 @@ export const workspaceNoteApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
-    // ─── Update a workspace note ──────────────────────────────────────
-    // Body may include: { title?, content?, folderId?, color?, visibility? }
-    //   folderId absent  → leave folder unchanged
-    //   folderId null    → move to root
-    //   folderId <id>    → move to that folder
-    //   visibility       → 'public' | 'workspace'
-    // Any changed field is appended to the note's history timeline.
     updateWorkspaceNote: builder.mutation({
       query: ({ noteId, data }) => {
-        const isFormData = data instanceof FormData;
+        const { body, headers } = buildBody(data);
         return {
           url: `${WORKSPACE_NOTES_URL}/${noteId}`,
           method: 'PUT',
-          body: data,
-          headers: isFormData ? undefined : { 'Content-Type': 'application/json' },
+          body,
+          headers,
         };
       },
       invalidatesTags: (result, error, { noteId }) => [
         { type: 'WorkspaceNote', id: noteId },
+        { type: 'WorkspaceNote', id: 'LIST' },
         { type: 'WorkspaceNote', id: 'PUBLIC' },
         'WorkspaceNote',
         'WorkspaceNoteFolder',
       ],
     }),
 
-    // ─── Change a note's color only ────────────────────────────────────
-    // Send { noteId, color } where color is any CSS color string or null
-    // (null clears the color). Uses the lightweight dedicated endpoint
-    // so it doesn't touch the title/content autosave pipeline.
     updateWorkspaceNoteColor: builder.mutation({
       query: ({ noteId, color }) => ({
         url: `${WORKSPACE_NOTES_URL}/${noteId}/color`,
         method: 'PATCH',
-        body: { color },
+        body: { color: color ?? null },
+        headers: { 'Content-Type': 'application/json' },
       }),
       invalidatesTags: (result, error, { noteId }) => [
         { type: 'WorkspaceNote', id: noteId },
+        { type: 'WorkspaceNote', id: 'LIST' },
         'WorkspaceNote',
       ],
     }),
 
-    // ─── Change a note's visibility only ───────────────────────────────
-    // Send { noteId, visibility } where visibility is 'public' | 'workspace'.
-    // Allowed server-side: note author OR workspace Admin/Owner.
     updateWorkspaceNoteVisibility: builder.mutation({
       query: ({ noteId, visibility }) => ({
         url: `${WORKSPACE_NOTES_URL}/${noteId}/visibility`,
         method: 'PATCH',
         body: { visibility },
+        headers: { 'Content-Type': 'application/json' },
       }),
       invalidatesTags: (result, error, { noteId }) => [
         { type: 'WorkspaceNote', id: noteId },
-        // If the caller also has a public view open, refresh it.
+        { type: 'WorkspaceNote', id: 'LIST' },
         { type: 'WorkspaceNote', id: 'PUBLIC' },
         'WorkspaceNote',
       ],
     }),
 
-    // ─── Move a note to a folder (or root) ────────────────────────────
-    // Send { noteId, folderId } where folderId is a folder _id OR null.
     moveWorkspaceNote: builder.mutation({
       query: ({ noteId, folderId }) => ({
         url: `${WORKSPACE_NOTES_URL}/${noteId}/move`,
         method: 'PATCH',
-        body: { folderId },
+        body: { folderId: folderId ?? null },
+        headers: { 'Content-Type': 'application/json' },
       }),
       invalidatesTags: (result, error, { noteId }) => [
         { type: 'WorkspaceNote', id: noteId },
+        { type: 'WorkspaceNote', id: 'LIST' },
         'WorkspaceNote',
         'WorkspaceNoteFolder',
       ],
     }),
 
-    // ─── Delete a workspace note ──────────────────────────────────────
-    // Server enforces: note author OR workspace Admin/Owner.
     deleteWorkspaceNote: builder.mutation({
       query: (noteId) => ({
         url: `${WORKSPACE_NOTES_URL}/${noteId}`,
@@ -166,14 +167,13 @@ export const workspaceNoteApiSlice = apiSlice.injectEndpoints({
       }),
       invalidatesTags: (result, error, noteId) => [
         { type: 'WorkspaceNote', id: noteId },
+        { type: 'WorkspaceNote', id: 'LIST' },
         { type: 'WorkspaceNote', id: 'PUBLIC' },
         'WorkspaceNote',
         'WorkspaceNoteFolder',
       ],
     }),
 
-    // ─── Export workspace note as PDF ──────────────────────────────────
-    // Members only (server-side). Public-note PDF export is not exposed.
     exportWorkspaceNotePDF: builder.query({
       query: (noteId) => ({
         url: `${WORKSPACE_NOTES_URL}/${noteId}/export-pdf`,
@@ -183,68 +183,66 @@ export const workspaceNoteApiSlice = apiSlice.injectEndpoints({
       }),
     }),
 
-    // ─── Import file to create workspace note ──────────────────────────
-    // Send { file, title?, workspaceId, folderId?, color?, visibility? }
+    // importFileToWorkspaceNote: explicit file-aware build — this is the one
+    // that WOULD corrupt null→"null", so use the helpers above.
     importFileToWorkspaceNote: builder.mutation({
       query: (data) => {
         const formData = new FormData();
         if (data.file) formData.append('file', data.file);
-        if (data.title) formData.append('title', data.title);
         if (data.workspaceId) formData.append('workspaceId', data.workspaceId);
+        if (data.title != null) formData.append('title', data.title);
+        // Only append folderId / color / visibility when they are real values —
+        // null/undefined mean "use default / leave unchanged" on the backend.
         if (data.folderId) formData.append('folderId', data.folderId);
         if (data.color) formData.append('color', data.color);
         if (data.visibility) formData.append('visibility', data.visibility);
-        return {
-          url: `${WORKSPACE_NOTES_URL}/import`,
-          method: 'POST',
-          body: formData,
-        };
+        return { url: `${WORKSPACE_NOTES_URL}/import`, method: 'POST', body: formData };
       },
-      invalidatesTags: ['WorkspaceNote', 'WorkspaceNoteFolder'],
+      invalidatesTags: (result, error, arg) => {
+        const workspaceId = workspaceIdOf(arg);
+        return [
+          { type: 'WorkspaceNote', id: 'LIST' },
+          ...(workspaceId ? [{ type: 'WorkspaceNote', id: workspaceId }] : []),
+          'WorkspaceNote',
+          'WorkspaceNoteFolder',
+        ];
+      },
     }),
 
     // ═══════════════════════════════════════════════════════════════════
     // Folders
     // ═══════════════════════════════════════════════════════════════════
 
-    // ─── Create a folder ──────────────────────────────────────────────
-    // Send { workspaceId, name, parentId?, color? }
     createWorkspaceNoteFolder: builder.mutation({
       query: (data) => ({
         url: `${WORKSPACE_NOTES_URL}/folders`,
         method: 'POST',
         body: data,
+        headers: { 'Content-Type': 'application/json' },
       }),
       invalidatesTags: ['WorkspaceNoteFolder'],
     }),
 
-    // ─── List folders for a workspace (flat list; build tree on client) ─
     getWorkspaceNoteFolders: builder.query({
       query: (workspaceId) => ({
         url: `${WORKSPACE_NOTES_URL}/folders/${workspaceId}`,
       }),
-      providesTags: (result, error, workspaceId) =>
-        result
-          ? [
-              ...result.folders.map((f) => ({ type: 'WorkspaceNoteFolder', id: f._id })),
-              { type: 'WorkspaceNoteFolder', id: 'LIST' },
-              { type: 'WorkspaceNoteFolder', id: workspaceId },
-            ]
-          : [
-              { type: 'WorkspaceNoteFolder', id: 'LIST' },
-              { type: 'WorkspaceNoteFolder', id: workspaceId },
-            ],
+      providesTags: (result, error, workspaceId) => {
+        const list = Array.isArray(result?.folders) ? result.folders : [];
+        return [
+          ...list.map((f) => ({ type: 'WorkspaceNoteFolder', id: f._id })),
+          { type: 'WorkspaceNoteFolder', id: 'LIST' },
+          { type: 'WorkspaceNoteFolder', id: workspaceId },
+        ];
+      },
     }),
 
-    // ─── Update a folder (rename / recolor / reorder / re-parent) ────
-    // Send { folderId, data } where data may include:
-    //   { name?, color?, order?, parentId? }
-    //   parentId: null → move to root
     updateWorkspaceNoteFolder: builder.mutation({
       query: ({ folderId, data }) => ({
         url: `${WORKSPACE_NOTES_URL}/folders/${folderId}`,
         method: 'PUT',
         body: data,
+        headers: { 'Content-Type': 'application/json' },
       }),
       invalidatesTags: (result, error, { folderId }) => [
         { type: 'WorkspaceNoteFolder', id: folderId },
@@ -253,14 +251,12 @@ export const workspaceNoteApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
-    // ─── Change a folder's color only ─────────────────────────────────
-    // Send { folderId, color } where color is any CSS color string or
-    // null (null clears the color).
     updateWorkspaceNoteFolderColor: builder.mutation({
       query: ({ folderId, color }) => ({
         url: `${WORKSPACE_NOTES_URL}/folders/${folderId}/color`,
         method: 'PATCH',
-        body: { color },
+        body: { color: color ?? null },
+        headers: { 'Content-Type': 'application/json' },
       }),
       invalidatesTags: (result, error, { folderId }) => [
         { type: 'WorkspaceNoteFolder', id: folderId },
@@ -269,43 +265,38 @@ export const workspaceNoteApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
-    // ─── Delete a folder ──────────────────────────────────────────────
-    // Send { folderId, moveNotesTo? }
-    //   moveNotesTo: 'parent' (default) | 'root' | '<folderId>'
     deleteWorkspaceNoteFolder: builder.mutation({
       query: ({ folderId, moveNotesTo }) => ({
         url: `${WORKSPACE_NOTES_URL}/folders/${folderId}`,
         method: 'DELETE',
         body: moveNotesTo ? { moveNotesTo } : {},
+        headers: { 'Content-Type': 'application/json' },
       }),
       invalidatesTags: (result, error, { folderId }) => [
         { type: 'WorkspaceNoteFolder', id: folderId },
         'WorkspaceNoteFolder',
-        'WorkspaceNote', // notes got re-homed — refresh visible lists
+        'WorkspaceNote',
       ],
     }),
   }),
 });
 
 export const {
-  // CRUD
   useCreateWorkspaceNoteMutation,
   useGetWorkspaceNotesQuery,
   useLazyGetWorkspaceNotesQuery,
   useGetWorkspaceNoteQuery,
   useLazyGetWorkspaceNoteQuery,
-  useGetPublicWorkspaceNoteQuery,          // 👈 new — public share page
-  useLazyGetPublicWorkspaceNoteQuery,      // 👈 new
+  useGetPublicWorkspaceNoteQuery,
+  useLazyGetPublicWorkspaceNoteQuery,
   useUpdateWorkspaceNoteMutation,
   useUpdateWorkspaceNoteColorMutation,
-  useUpdateWorkspaceNoteVisibilityMutation, // 👈 new
+  useUpdateWorkspaceNoteVisibilityMutation,
   useMoveWorkspaceNoteMutation,
   useDeleteWorkspaceNoteMutation,
   useExportWorkspaceNotePDFQuery,
   useLazyExportWorkspaceNotePDFQuery,
   useImportFileToWorkspaceNoteMutation,
-
-  // Folders
   useCreateWorkspaceNoteFolderMutation,
   useGetWorkspaceNoteFoldersQuery,
   useLazyGetWorkspaceNoteFoldersQuery,
